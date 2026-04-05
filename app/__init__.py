@@ -1,0 +1,1 @@
+# Legalize ES RAG Application
