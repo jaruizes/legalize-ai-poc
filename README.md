@@ -1,200 +1,116 @@
-# Legalize ES - RAG API
+# Legalize ES - RAG PoC on AWS
 
-PoC de un sistema RAG (Retrieval-Augmented Generation) para consultar la legislación española utilizando Qdrant como base de datos vectorial y FastAPI como framework web.
+A foundational Proof of Concept (PoC) for a **Retrieval-Augmented Generation (RAG)** system designed to query Spanish legislation. This project leverages AWS managed services to provide a scalable, serverless, and production-ready architecture.
 
-## 📋 Descripción
+## 📋 Overview
 
-Este proyecto indexa documentos legales españoles en formato markdown (de la carpeta `legalize-es`) en una base de datos vectorial Qdrant y proporciona un API REST para realizar consultas sobre leyes españolas utilizando técnicas de RAG.
+This project serves as the baseline for a series of implementations exploring the evolution of RAG systems. It indexes Spanish legal documents (in Markdown) into a vector database and provides a web interface to perform natural language queries against the law.
 
-### Características
+### 🏗️ Target Use Case
+The current implementation focuses on a **Foundational RAG** pattern, which will be evolved in future iterations to include:
+- 🧠 **Semantic Cache**: To reduce latency and costs for redundant queries.
+- 🛡️ **Guardrails**: To ensure safe and relevant model responses.
+- 🔍 **Hybrid Search**: Combining semantic vector search with keyword-based BM25 search.
+- 🔄 **Advanced Re-ranking**: To improve the relevance of retrieved context.
 
-- **Indexación automática**: Al arrancar, el sistema indexa todos los documentos markdown de `legalize-es`
-- **Búsqueda semántica**: Utiliza embeddings multilingües para búsqueda por similitud
-- **Generación de respuestas**: Integración con OpenAI para generar respuestas contextualizadas
-- **API REST**: Endpoint `/ask` para realizar preguntas sobre leyes españolas
-- **Multi-región**: Soporta leyes estatales (es) y autonómicas (es-cm, es-an, etc.)
+## 🏗️ Architecture
 
-## 🏗️ Arquitectura
+The system is built entirely on AWS using a serverless approach:
 
-- **FastAPI**: Framework web para el API REST
-- **Qdrant**: Base de datos vectorial para almacenamiento y búsqueda de embeddings
-- **Sentence Transformers**: Modelo de embeddings multilingüe
-- **LangChain**: Chunking y procesamiento de textos
-- **OpenAI**: Generación de respuestas (opcional)
+- **Frontend**: Angular 19 application hosted on **Amazon S3** and distributed via **Amazon CloudFront**.
+- **API**: **AWS Lambda** (Python) triggered by **Amazon API Gateway**.
+- **Orchestration**: **Amazon Bedrock Knowledge Bases** handles the RAG workflow (Retrieval + Generation).
+- **Vector Store**: **Amazon OpenSearch Serverless (OSS)** stores the document embeddings.
+- **LLMs**: 
+    - **Embeddings**: `amazon.titan-embed-text-v2:0`
+    - **Generation**: `amazon.nova-lite-v1:0` (via Bedrock)
+- **Infrastructure as Code**: **Terraform**.
 
-## 🚀 Instalación y Uso
+## 🚀 Getting Started
 
-### Prerrequisitos
+### Prerequisites
 
-- Docker y Docker Compose
-- (Opcional) Clave de API de OpenAI para generación de respuestas mejoradas
+- **AWS Account** with Bedrock model access enabled (Titan Embeddings and Nova/Claude).
+- **Terraform** (>= 1.5.0)
+- **AWS CLI** configured with appropriate credentials.
+- **Node.js & npm** (for the Angular frontend).
+- **Python 3.12+** (for local Lambda testing).
 
-### Configuración
+### One-Click Deployment
 
-1. Copia el archivo de ejemplo de variables de entorno:
+The project includes a bootstrap script that handles infrastructure provisioning, frontend building, and data ingestion.
+
+```bash
+chmod +x start.sh
+./start.sh
+```
+
+This script will:
+1. Initialize and apply the **Terraform** configuration.
+2. Build the **Angular** application.
+3. Deploy the frontend assets to **S3** and invalidate **CloudFront**.
+4. Synchronize the legal documents from `legalize-es/` to the source S3 bucket.
+5. Trigger an **Ingestion Job** in the Bedrock Knowledge Base.
+
+### Manual Setup
+
+1. **Infrastructure**:
    ```bash
-   cp .env.example .env
+   cd infrastructure/terraform
+   terraform init
+   terraform apply
    ```
 
-2. Edita el archivo `.env` y configura las variables necesarias:
-   ```env
-   OPENAI_API_KEY=tu_clave_openai_aqui
-   REINDEX_ON_STARTUP=true
+2. **Frontend**:
+   ```bash
+   cd app
+   npm install
+   npm run build
+   # Sync with S3 (see scripts/deploy-frontend.sh for details)
    ```
 
-### Ejecución con Docker Compose
+## 📂 Project Structure
 
-```bash
-# Levantar todos los servicios (Qdrant + API)
-docker-compose up --build
+- `app/`: Angular 19 frontend.
+- `infrastructure/terraform/`: AWS infrastructure definitions.
+    - `modules/`: Reusable modules for OpenSearch, Bedrock KB, API, and Frontend.
+- `lambda/`: Python backend logic for the `/ask` endpoint.
+- `legalize-es/`: The "Knowledge Base" — Spanish laws in Markdown format.
+- `scripts/`: Utility scripts for deployment and maintenance.
+- `posts/`: Technical articles and documentation related to the project's evolution.
 
-# En modo detached (segundo plano)
-docker-compose up -d --build
-```
+## 🔧 Configuration
 
-La API estará disponible en: `http://localhost:8000`
+You can customize the RAG behavior in `infrastructure/terraform/variables.tf`:
 
-### Instalación local (sin Docker)
-
-```bash
-# Crear entorno virtual
-python -m venv venv
-source venv/bin/activate  # En Windows: venv\Scripts\activate
-
-# Instalar dependencias
-pip install -r requirements.txt
-
-# Asegúrate de que Qdrant esté corriendo
-docker run -p 6333:6333 qdrant/qdrant
-
-# Ejecutar la aplicación
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-## 📡 Endpoints del API
-
-### `GET /`
-Información general del API
-
-### `GET /health`
-Verificar estado del servicio
-
-### `POST /ask`
-Realizar una pregunta sobre leyes españolas
-
-**Request:**
-```json
-{
-  "question": "¿Qué dice la constitución sobre la educación?",
-  "top_k": 5
-}
-```
-
-**Response:**
-```json
-{
-  "question": "¿Qué dice la constitución sobre la educación?",
-  "answer": "Según la legislación española...",
-  "sources": [
-    {
-      "titulo": "Constitución Española",
-      "identificador": "BOE-A-1978-31229",
-      "region": "es",
-      "fuente": "https://www.boe.es/...",
-      "score": 0.89
-    }
-  ]
-}
-```
-
-### `POST /reindex`
-Forzar reindexación manual de todos los documentos
-
-## 🔧 Configuración Avanzada
-
-### Variables de Entorno
-
-| Variable | Descripción | Default |
+| Variable | Description | Default |
 |----------|-------------|---------|
-| `QDRANT_HOST` | Host de Qdrant | `qdrant` |
-| `QDRANT_PORT` | Puerto de Qdrant | `6333` |
-| `QDRANT_COLLECTION_NAME` | Nombre de la colección | `legalize_es` |
-| `OPENAI_API_KEY` | Clave API de OpenAI | - |
-| `EMBEDDING_MODEL` | Modelo de embeddings | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` |
-| `CHUNK_SIZE` | Tamaño de chunks de texto | `1000` |
-| `CHUNK_OVERLAP` | Solapamiento entre chunks | `200` |
-| `REINDEX_ON_STARTUP` | Reindexar al iniciar | `true` |
+| `chunking_strategy` | Strategy for splitting text (`SEMANTIC`, `HIERARCHICAL`, `FIXED_SIZE`) | `SEMANTIC` |
+| `kb_model_id` | Bedrock Embedding model ID | `amazon.titan-embed-text-v2:0` |
+| `generative_model_id` | Bedrock Foundation Model for answering | `amazon.nova-lite-v1:0` |
+| `api_system_prompt` | The personality and constraints of the assistant | (Legal expert) |
 
-### Modo sin OpenAI
+## 🧪 Testing
 
-Si no proporcionas una clave de OpenAI, el sistema funcionará en modo "contexto únicamente", devolviendo los documentos relevantes sin generar una respuesta sintetizada.
-
-## 📁 Estructura del Proyecto
-
-```
-.
-├── app/
-│   ├── __init__.py
-│   ├── config.py          # Configuración y settings
-│   ├── indexer.py         # Indexación de documentos
-│   ├── rag.py             # Sistema RAG
-│   └── main.py            # FastAPI application
-├── legalize-es/           # Documentos legales en markdown
-│   ├── es/                # Leyes estatales
-│   ├── es-cm/             # Castilla La Mancha
-│   ├── es-an/             # Andalucía
-│   └── ...
-├── docker-compose.yaml
-├── Dockerfile
-├── requirements.txt
-├── .env.example
-└── README.md
+### Local Lambda Testing
+The `lambda/` directory contains scripts to test the handler logic without deploying to AWS:
+```bash
+cd lambda
+pip install -r requirements.txt
+python test_local.py
 ```
 
-## 🧪 Ejemplos de Uso
+## 🗑️ Cleanup
 
-### Con curl
+To avoid ongoing AWS costs (especially for OpenSearch Serverless), destroy the infrastructure when finished:
 
 ```bash
-# Realizar una pregunta
-curl -X POST "http://localhost:8000/ask" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "¿Cuáles son los derechos fundamentales en España?",
-    "top_k": 3
-  }'
-
-# Health check
-curl http://localhost:8000/health
-
-# Forzar reindexación
-curl -X POST http://localhost:8000/reindex
+./destroy.sh
 ```
 
-### Con Python
+## 🤝 Evolution Roadmap
 
-```python
-import requests
-
-response = requests.post(
-    "http://localhost:8000/ask",
-    json={
-        "question": "¿Qué normativa regula el teletrabajo?",
-        "top_k": 5
-    }
-)
-
-result = response.json()
-print(f"Respuesta: {result['answer']}")
-print(f"Fuentes: {len(result['sources'])} documentos")
-```
-
-## 📝 Notas
-
-- La primera indexación puede tardar varios minutos dependiendo del número de documentos
-- Los embeddings se generan usando CPU por defecto. Para mejor rendimiento, considera usar GPU
-- El modelo de embeddings descarga automáticamente al primer uso (~400MB)
-
-## 🤝 Contribuciones
-
-Este es un proyecto PoC (Proof of Concept) para demostrar capacidades de AI sobre datos legales españoles.
+This PoC is designed to be modified. Future posts will cover:
+1. **Implementing Guardrails** to prevent hallucinations about non-Spanish laws.
+2. **Adding a Semantic Cache** using Amazon ElastiCache or a local Redis.
+3. **Evaluating Retrieval Quality** using RAGAS or similar frameworks.

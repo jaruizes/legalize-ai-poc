@@ -46,3 +46,29 @@ data/
 # OS
 .DS_Store
 Thumbs.db
+
+# Archivos de estado local (CRÍTICO)
+*.tfstate
+*.tfstate.*
+
+# Directorio de trabajo (contiene providers y módulos)
+.terraform/
+
+# Archivos de variables con datos reales
+*.tfvars
+*.tfvars.json
+
+# Archivos de variables específicas de despliegue
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Logs de Terraform
+*.log
+
+# Archivos de configuración de CLI de Terraform
+.terraformrc
+terraform.rc
+/app/node_modules/
+/app/.angular/
