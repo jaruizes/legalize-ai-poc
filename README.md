@@ -6,6 +6,8 @@ A foundational Proof of Concept (PoC) for a **Retrieval-Augmented Generation (RA
 
 This project serves as the baseline for a series of implementations exploring the evolution of RAG systems. It indexes Spanish legal documents (in Markdown) into a vector database and provides a web interface to perform natural language queries against the law.
 
+The legislation data is sourced from the open-source repository [legalize-dev/legalize-es](https://github.com/legalize-dev/legalize-es), which contains a comprehensive collection of Spanish laws formatted in Markdown.
+
 ### 🏗️ Target Use Case
 The current implementation focuses on a **Foundational RAG** pattern, which will be evolved in future iterations to include:
 - 🧠 **Semantic Cache**: To reduce latency and costs for redundant queries.
@@ -49,7 +51,7 @@ This script will:
 1. Initialize and apply the **Terraform** configuration.
 2. Build the **Angular** application.
 3. Deploy the frontend assets to **S3** and invalidate **CloudFront**.
-4. Synchronize the legal documents from `legalize-es/` to the source S3 bucket.
+4. Automatically clone the latest legislation from [legalize-es](https://github.com/legalize-dev/legalize-es.git) and sync it to the source S3 bucket.
 5. Trigger an **Ingestion Job** in the Bedrock Knowledge Base.
 
 ### Manual Setup
@@ -75,7 +77,6 @@ This script will:
 - `infrastructure/terraform/`: AWS infrastructure definitions.
     - `modules/`: Reusable modules for OpenSearch, Bedrock KB, API, and Frontend.
 - `lambda/`: Python backend logic for the `/ask` endpoint.
-- `legalize-es/`: The "Knowledge Base" — Spanish laws in Markdown format.
 - `scripts/`: Utility scripts for deployment and maintenance.
 - `posts/`: Technical articles and documentation related to the project's evolution.
 

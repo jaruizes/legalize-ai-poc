@@ -113,3 +113,10 @@ variable "api_system_prompt" {
   type        = string
   default     = "You are a Spanish legislation expert assistant. Answer questions accurately and concisely based on the provided legal documents. Respond in the same language as the question. Always cite the specific laws and articles you reference."
 }
+
+// Laws data source
+variable "legalize_es_repo_url" {
+  type        = string
+  description = "URL of the GitHub repository containing the Spanish legislation documents"
+  default     = "https://github.com/legalize-dev/legalize-es.git"
+}

@@ -156,6 +156,9 @@ resource "time_sleep" "access_policy_propagation" {
   create_duration = "30s"
 }
 
+# This sleep ensures that the OpenSearch index is fully ready and 
+# permissions have propagated before Bedrock KB tries to use it.
 resource "time_sleep" "aws_iam_role_policy_bedrock_kb_resource_kb_oss" {
+  depends_on = [opensearch_index.resource_kb]
   create_duration = "20s"
 }

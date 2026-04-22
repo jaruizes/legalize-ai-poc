@@ -3,11 +3,23 @@ module "s3_source_bucket" {
   bucket_name = "${local.name_prefix}-data-${local.account_id}-${local.region_short}"
 }
 
+# Fetch the latest commit hash of the legislation repository to trigger sync on changes
+data "external" "repo_commit" {
+  program = ["sh", "-c", "echo \"{\\\"sha\\\": \\\"$(git ls-remote ${var.legalize_es_repo_url} HEAD | cut -f1)\\\"}\""]
+}
+
 resource "terraform_data" "sync_legalize_es" {
-  triggers_replace = sha1(join(",", sort(fileset("${path.root}/../../legalize-es", "**/*.md"))))
+  triggers_replace = [
+    data.external.repo_commit.result.sha
+  ]
 
   provisioner "local-exec" {
-    command = "aws s3 sync ${path.root}/../../legalize-es s3://${module.s3_source_bucket.bucket_name}/ --delete --region ${local.region}"
+    command = <<-EOT
+      TEMP_DIR=$(mktemp -d)
+      git clone --depth 1 ${var.legalize_es_repo_url} $TEMP_DIR
+      aws s3 sync $TEMP_DIR s3://${module.s3_source_bucket.bucket_name}/ --delete --exclude \".git/*\" --region ${local.region}
+      rm -rf $TEMP_DIR
+    EOT
   }
 
   depends_on = [module.s3_source_bucket]

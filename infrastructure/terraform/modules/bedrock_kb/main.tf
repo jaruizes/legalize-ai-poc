@@ -113,13 +113,15 @@ resource "aws_bedrockagent_knowledge_base" "knowledge_base" {
   depends_on = [
     aws_iam_role_policy.bedrock_kb_resource_kb_model,
     aws_iam_role_policy.bedrock_kb_resource_kb_s3,
-    aws_iam_role_policy.bedrock_kb_resource_kb_oss
+    aws_iam_role_policy.bedrock_kb_resource_kb_oss,
+    var.storage_wait_id
   ]
 }
 
 resource "aws_bedrockagent_data_source" "this" {
-  knowledge_base_id = aws_bedrockagent_knowledge_base.knowledge_base.id
-  name              = "${var.kb_name}-s3-source"
+  knowledge_base_id    = aws_bedrockagent_knowledge_base.knowledge_base.id
+  name                 = "${var.kb_name}-s3-source"
+  data_deletion_policy = "RETAIN"
 
   data_source_configuration {
     type = "S3"
