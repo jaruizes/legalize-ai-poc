@@ -1,0 +1,166 @@
+<div class="layout">
+
+  <!-- ── Header ─────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header__inner">
+      <div class="header__brand">
+        <span class="header__icon">⚖️</span>
+        <span class="header__title">Consulta leyes</span>
+      </div>
+      @if (hasMessages()) {
+        <button class="btn-ghost" (click)="clearChat()" title="Nueva conversación">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          Nueva consulta
+        </button>
+      }
+    </div>
+  </header>
+
+  <!-- ── Messages / Welcome ─────────────────────────────────── -->
+  <main class="main">
+
+    @if (!hasMessages()) {
+      <!-- Welcome screen -->
+      <div class="welcome">
+        <div class="welcome__icon">⚖️</div>
+        <h1 class="welcome__heading">Consulta leyes</h1>
+        <p class="welcome__sub">
+          Pregunta sobre la legislación española y obtén respuestas con referencias a los documentos oficiales.
+        </p>
+        <div class="examples">
+          <p class="examples__label">Prueba con estos ejemplos</p>
+          <div class="examples__grid">
+            @for (ex of examples; track ex) {
+              <button class="example-card" (click)="useExample(ex)">
+                {{ ex }}
+              </button>
+            }
+          </div>
+        </div>
+      </div>
+
+    } @else {
+      <!-- Chat messages -->
+      <div class="messages" #messagesContainer>
+        @for (msg of messages(); track msg.id) {
+
+          <!-- User message -->
+          @if (msg.role === 'user') {
+            <div class="msg msg--user">
+              <div class="msg__bubble msg__bubble--user">{{ msg.content }}</div>
+            </div>
+          }
+
+          <!-- Assistant message -->
+          @if (msg.role === 'assistant') {
+            <div class="msg msg--assistant">
+              <div class="msg__avatar" aria-hidden="true">⚖️</div>
+              <div class="msg__body">
+
+                @if (msg.loading) {
+                  <div class="msg__bubble msg__bubble--assistant">
+                    <span class="dots">
+                      <span></span><span></span><span></span>
+                    </span>
+                  </div>
+                } @else {
+                  <div
+                    class="msg__bubble msg__bubble--assistant"
+                    [class.msg__bubble--error]="msg.error"
+                  >{{ msg.content }}</div>
+
+                  <!-- Citations -->
+                  @if (msg.citations && msg.citations.length > 0) {
+                    <div class="citations">
+                      <button
+                        class="citations__toggle"
+                        (click)="toggleCitations(msg.id)"
+                        [attr.aria-expanded]="msg.showCitations"
+                      >
+                        <svg class="citations__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                          <polyline points="14 2 14 8 20 8"/>
+                          <line x1="16" y1="13" x2="8" y2="13"/>
+                          <line x1="16" y1="17" x2="8" y2="17"/>
+                          <polyline points="10 9 9 9 8 9"/>
+                        </svg>
+                        {{ msg.citations.length }}
+                        {{ msg.citations.length === 1 ? 'fuente consultada' : 'fuentes consultadas' }}
+                        <svg
+                          class="citations__chevron"
+                          [class.citations__chevron--open]="msg.showCitations"
+                          width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                        >
+                          <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                      </button>
+
+                      @if (msg.showCitations) {
+                        <div class="citations__list">
+                          @for (cit of msg.citations; track $index) {
+                            <div class="citation">
+                              <div class="citation__header">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                  <polyline points="14 2 14 8 20 8"/>
+                                </svg>
+                                <span class="citation__label">{{ getDocumentLabel(cit.source) }}</span>
+                              </div>
+                              @if (cit.text) {
+                                <p class="citation__excerpt">{{ cit.text }}</p>
+                              }
+                            </div>
+                          }
+                        </div>
+                      }
+                    </div>
+                  }
+                }
+
+              </div>
+            </div>
+          }
+
+        }
+      </div>
+    }
+
+  </main>
+
+  <!-- ── Input bar ───────────────────────────────────────────── -->
+  <footer class="footer">
+    <div class="input-wrap">
+      <textarea
+        #inputTextarea
+        class="input-wrap__textarea"
+        [(ngModel)]="inputValue"
+        (keydown)="onKeydown($event)"
+        (input)="autoResize($event)"
+        placeholder="Escribe tu consulta legal…"
+        rows="1"
+        [disabled]="isLoading()"
+        aria-label="Pregunta"
+      ></textarea>
+      <button
+        class="input-wrap__send"
+        (click)="sendMessage()"
+        [disabled]="!inputValue.trim() || isLoading()"
+        aria-label="Enviar"
+      >
+        @if (isLoading()) {
+          <span class="spinner"></span>
+        } @else {
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+          </svg>
+        }
+      </button>
+    </div>
+    <p class="footer__disclaimer">
+      Consulta leyes puede cometer errores. Verifica siempre la información con fuentes oficiales (BOE, BOJA, etc.).
+    </p>
+  </footer>
+
+</div>

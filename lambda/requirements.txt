@@ -1,0 +1,3 @@
+boto3
+moto  # Mock de AWS para testing
+pytest

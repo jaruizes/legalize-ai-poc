@@ -1,0 +1,13 @@
+{
+  "/ask": {
+    "target": "https://hl5uw2fxmc.execute-api.eu-west-1.amazonaws.com/poc",
+    "secure": true,
+    "changeOrigin": true,
+    "logLevel": "debug",
+    "comments": [
+      "Set 'target' to the API Gateway stage base URL (without /ask).",
+      "Get it from: terraform -chdir=../infrastructure/terraform output -raw api_endpoint | sed 's|/ask||'",
+      "Example: https://abc123xyz.execute-api.eu-west-1.amazonaws.com/poc"
+    ]
+  }
+}
