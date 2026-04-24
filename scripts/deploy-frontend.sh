@@ -24,11 +24,49 @@ BUCKET_NAME=$(terraform -chdir="$TF_DIR" output -raw frontend_s3_bucket_name)
 DIST_ID=$(terraform -chdir="$TF_DIR" output -raw frontend_cloudfront_distribution_id)
 CF_URL=$(terraform -chdir="$TF_DIR" output -raw cloudfront_url)
 
+# Read UI variables (handling potentially complex strings/lists)
+UI_TITLE=$(terraform -chdir="$TF_DIR" output -raw ui_title 2>/dev/null || echo "Consulta leyes")
+UI_SUBTITLE=$(terraform -chdir="$TF_DIR" output -raw ui_subtitle 2>/dev/null || echo "Pregunta sobre la legislación española y obtén respuestas con referencias a los documentos oficiales.")
+UI_ICON=$(terraform -chdir="$TF_DIR" output -raw ui_icon 2>/dev/null || echo "⚖️")
+UI_DISCLAIMER=$(terraform -chdir="$TF_DIR" output -raw ui_disclaimer 2>/dev/null || echo "Consulta leyes puede cometer errores. Verifica siempre la información con fuentes oficiales (BOE, BOJA, etc.).")
+UI_EXAMPLES_JSON=$(terraform -chdir="$TF_DIR" output -json ui_examples 2>/dev/null || echo '[]')
+
 echo "   S3 bucket    : $BUCKET_NAME"
 echo "   Distribution : $DIST_ID"
 echo "   App URL      : $CF_URL"
+echo "   UI Title     : $UI_TITLE"
 
-# ── 2. Install dependencies ───────────────────────────────────────────────────
+# ── 2. Inject UI variables into environment.ts ───────────────────────────────
+echo ""
+echo "💉 Injecting UI variables into environment.ts..."
+
+python3 - <<EOF
+import json
+import os
+
+env_path = "$APP_DIR/src/environments/environment.ts"
+with open(env_path, "r") as f:
+    content = f.read()
+
+# Simple replacement strategy for our environment.ts structure
+ui_config = {
+    "title": """$UI_TITLE""",
+    "subtitle": """$UI_SUBTITLE""",
+    "icon": """$UI_ICON""",
+    "examples": json.loads("""$UI_EXAMPLES_JSON"""),
+    "disclaimer": """$UI_DISCLAIMER"""
+}
+
+# Find the ui: { ... } block and replace it
+import re
+new_ui_str = "ui: " + json.dumps(ui_config, indent=4, ensure_ascii=False)
+content = re.sub(r"ui:\s*\{[\s\S]*?\}", new_ui_str, content)
+
+with open(env_path, "w") as f:
+    f.write(content)
+EOF
+
+# ── 3. Install dependencies ───────────────────────────────────────────────────
 echo ""
 echo "📦 Installing npm dependencies..."
 cd "$APP_DIR"

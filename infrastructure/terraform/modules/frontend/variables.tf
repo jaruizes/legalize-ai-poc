@@ -17,3 +17,28 @@ variable "api_gateway_stage_path" {
   description = "API Gateway stage path used as CloudFront origin path (e.g. /poc)"
   type        = string
 }
+
+variable "ui_title" {
+  type        = string
+  description = "Application title"
+}
+
+variable "ui_subtitle" {
+  type        = string
+  description = "Application subtitle"
+}
+
+variable "ui_icon" {
+  type        = string
+  description = "Application icon"
+}
+
+variable "ui_examples" {
+  type        = list(string)
+  description = "List of example questions"
+}
+
+variable "ui_disclaimer" {
+  type        = string
+  description = "Disclaimer text for the footer"
+}

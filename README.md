@@ -1,12 +1,13 @@
-# Legalize ES - RAG PoC on AWS
+# Generic RAG PoC on AWS
 
-A foundational Proof of Concept (PoC) for a **Retrieval-Augmented Generation (RAG)** system designed to query Spanish legislation. This project leverages AWS managed services to provide a scalable, serverless, and production-ready architecture.
+A foundational and highly configurable Proof of Concept (PoC) for a **Retrieval-Augmented Generation (RAG)** system. While designed to be domain-agnostic, it uses Spanish legislation as a primary example. This project leverages AWS managed services to provide a scalable, serverless, and production-ready architecture.
 
 ## 📋 Overview
 
-This project serves as the baseline for a series of implementations exploring the evolution of RAG systems. It indexes Spanish legal documents (in Markdown) into a vector database and provides a web interface to perform natural language queries against the law.
+This project provides a generic and automated pipeline for building RAG systems. It is designed to be easily adapted to any knowledge domain by simply pointing to a repository of Markdown documents and configuring the UI labels.
 
-The legislation data is sourced from the open-source repository [legalize-dev/legalize-es](https://github.com/legalize-dev/legalize-es), which contains a comprehensive collection of Spanish laws formatted in Markdown.
+As a reference implementation, it currently indexes Spanish legal documents sourced from the open-source repository [legalize-dev/legalize-es](https://github.com/legalize-dev/legalize-es), which contains a comprehensive collection of laws formatted in Markdown.
+
 
 ### 🏗️ Target Use Case
 The current implementation focuses on a **Foundational RAG** pattern, which will be evolved in future iterations to include:
@@ -89,7 +90,11 @@ You can customize the RAG behavior in `infrastructure/terraform/variables.tf`:
 | `chunking_strategy` | Strategy for splitting text (`SEMANTIC`, `HIERARCHICAL`, `FIXED_SIZE`) | `SEMANTIC` |
 | `kb_model_id` | Bedrock Embedding model ID | `amazon.titan-embed-text-v2:0` |
 | `generative_model_id` | Bedrock Foundation Model for answering | `amazon.nova-lite-v1:0` |
-| `api_system_prompt` | The personality and constraints of the assistant | (Legal expert) |
+| `api_system_prompt` | The personality and constraints of the assistant | (Helpful assistant) |
+| `legalize_es_repo_url` | URL of the repository with Markdown docs | (legalize-es repo) |
+| `ui_title` | Application title in the UI | `Consulta leyes` |
+| `ui_icon` | Application icon/emoji | `⚖️` |
+| `ui_examples` | List of example questions shown on start | (Legal questions) |
 
 ## 🧪 Testing
 

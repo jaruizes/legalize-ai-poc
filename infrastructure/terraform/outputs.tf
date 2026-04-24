@@ -62,3 +62,23 @@ output "frontend_cloudfront_distribution_id" {
   description = "CloudFront distribution ID (needed for cache invalidations)"
   value       = module.frontend.cloudfront_distribution_id
 }
+
+output "ui_title" {
+  value = var.ui_title
+}
+
+output "ui_subtitle" {
+  value = var.ui_subtitle
+}
+
+output "ui_icon" {
+  value = var.ui_icon
+}
+
+output "ui_examples" {
+  value = var.ui_examples
+}
+
+output "ui_disclaimer" {
+  value = var.ui_disclaimer
+}

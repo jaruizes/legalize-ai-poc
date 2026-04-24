@@ -75,6 +75,14 @@ if [ -n "$KB_ID" ] && [ -n "$DS_ID" ]; then
   if [ "$RUNNING" -gt 0 ] 2>/dev/null; then
     warn "$RUNNING ingestion job(s) still running. Waiting for them to finish..."
     warn "(Bedrock ingestion jobs cannot be cancelled — this may take a few minutes.)"
+    JOB_ID=$(aws bedrock-agent list-ingestion-jobs --knowledge-base-id JJFIUB6ZVG --data-source-id 5TV2BHM02B --region eu-west-1 --query 'ingestionJobSummaries[?status==`IN_PROGRESS` || status==`STARTING`].ingestionJobId' --output text)
+
+    aws bedrock-agent stop-ingestion-job \
+      --knowledge-base-id "$KB_ID" \
+      --data-source-id "$DS_ID" \
+      --ingestion-job-id $JOB_ID \
+      --region "$REGION" \
+      --no-cli-pager > /dev/null 2>&1
 
     ELAPSED=0
     while true; do
@@ -157,16 +165,6 @@ fi
 
 # ── 3. Confirmation ────────────────────────────────────────────────────────────
 section "Terraform — destroy"
-
-if [ "$AUTO_APPROVE" = false ]; then
-  echo -e "${RED}${BOLD}"
-  echo "  ⚠️  WARNING: This will PERMANENTLY destroy ALL infrastructure."
-  echo "     OpenSearch collection, Bedrock Knowledge Base, Lambda,"
-  echo "     API Gateway, CloudFront distribution, and S3 bucket."
-  echo -e "${RESET}"
-  read -rp "  Type 'yes' to confirm: " CONFIRM
-  [ "$CONFIRM" = "yes" ] || { warn "Aborted."; exit 0; }
-fi
 
 terraform -chdir="$TF_DIR" destroy -auto-approve -input=false
 

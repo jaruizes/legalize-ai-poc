@@ -4,8 +4,8 @@
   <header class="header">
     <div class="header__inner">
       <div class="header__brand">
-        <span class="header__icon">⚖️</span>
-        <span class="header__title">Consulta leyes</span>
+        <span class="header__icon">{{ ui.icon }}</span>
+        <span class="header__title">{{ ui.title }}</span>
       </div>
       @if (hasMessages()) {
         <button class="btn-ghost" (click)="clearChat()" title="Nueva conversación">
@@ -24,10 +24,10 @@
     @if (!hasMessages()) {
       <!-- Welcome screen -->
       <div class="welcome">
-        <div class="welcome__icon">⚖️</div>
-        <h1 class="welcome__heading">Consulta leyes</h1>
+        <div class="welcome__icon">{{ ui.icon }}</div>
+        <h1 class="welcome__heading">{{ ui.title }}</h1>
         <p class="welcome__sub">
-          Pregunta sobre la legislación española y obtén respuestas con referencias a los documentos oficiales.
+          {{ ui.subtitle }}
         </p>
         <div class="examples">
           <p class="examples__label">Prueba con estos ejemplos</p>
@@ -138,7 +138,7 @@
         [(ngModel)]="inputValue"
         (keydown)="onKeydown($event)"
         (input)="autoResize($event)"
-        placeholder="Escribe tu consulta legal…"
+        placeholder="Escribe tu consulta…"
         rows="1"
         [disabled]="isLoading()"
         aria-label="Pregunta"
@@ -159,8 +159,9 @@
       </button>
     </div>
     <p class="footer__disclaimer">
-      Consulta leyes puede cometer errores. Verifica siempre la información con fuentes oficiales (BOE, BOJA, etc.).
+     {{ ui.disclaimer }}
     </p>
+
   </footer>
 
 </div>

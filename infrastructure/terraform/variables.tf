@@ -109,9 +109,9 @@ variable "generative_model_id" {
 }
 
 variable "api_system_prompt" {
-  description = "System prompt sent to the generative model on every /ask request"
+  description = "System prompt sent to the generative model on every /ask request. This defines the AI assistant's identity and constraints."
   type        = string
-  default     = "You are a Spanish legislation expert assistant. Answer questions accurately and concisely based on the provided legal documents. Respond in the same language as the question. Always cite the specific laws and articles you reference."
+  default     = "You are a helpful expert assistant. Answer questions accurately and concisely based on the provided documents. Respond in the same language as the question. Always cite the specific documents and sections you reference."
 }
 
 // Laws data source
@@ -119,4 +119,40 @@ variable "legalize_es_repo_url" {
   type        = string
   description = "URL of the GitHub repository containing the Spanish legislation documents"
   default     = "https://github.com/legalize-dev/legalize-es.git"
+}
+
+# UI Configuration Variables
+variable "ui_title" {
+  type        = string
+  description = "Application title"
+  default     = "Consulta leyes"
+}
+
+variable "ui_subtitle" {
+  type        = string
+  description = "Application subtitle"
+  default     = "Pregunta sobre la legislación española y obtén respuestas con referencias a los documentos oficiales."
+}
+
+variable "ui_icon" {
+  type        = string
+  description = "Application icon (emoji or text)"
+  default     = "⚖️"
+}
+
+variable "ui_examples" {
+  type        = list(string)
+  description = "List of example questions"
+  default     = [
+    "¿Cuáles son los requisitos para constituir una sociedad de responsabilidad limitada?",
+    "¿Qué establece la Constitución Española sobre el derecho a la vivienda?",
+    "¿Cuántos días de vacaciones tiene un trabajador según el Estatuto de los Trabajadores?",
+    "¿Cuáles son las causas de extinción de un contrato de trabajo?"
+  ]
+}
+
+variable "ui_disclaimer" {
+  type        = string
+  description = "Disclaimer text for the footer"
+  default     = "Consulta leyes puede cometer errores. Verifica siempre la información con fuentes oficiales (BOE, BOJA, etc.)."
 }

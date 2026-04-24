@@ -76,4 +76,10 @@ module "frontend" {
   bucket_name            = "${local.name_prefix}-frontend-${local.account_id}-${local.region_short}"
   api_gateway_domain     = module.api.api_gateway_domain
   api_gateway_stage_path = module.api.api_stage_path
+
+  ui_title      = var.ui_title
+  ui_subtitle   = var.ui_subtitle
+  ui_icon       = var.ui_icon
+  ui_examples   = var.ui_examples
+  ui_disclaimer = var.ui_disclaimer
 }

@@ -11,6 +11,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from './services/api.service';
 import { Message } from './models/chat.model';
+import { environment } from '../environments/environment';
 
 @Component({
   selector: 'app-root',
@@ -32,12 +33,8 @@ export class AppComponent implements AfterViewChecked {
 
   hasMessages = computed(() => this.messages().length > 0);
 
-  readonly examples = [
-    '¿Cuáles son los requisitos para constituir una sociedad de responsabilidad limitada?',
-    '¿Qué establece la Constitución Española sobre el derecho a la vivienda?',
-    '¿Cuántos días de vacaciones tiene un trabajador según el Estatuto de los Trabajadores?',
-    '¿Cuáles son las causas de extinción de un contrato de trabajo?',
-  ];
+  readonly ui = environment.ui;
+  readonly examples = environment.ui.examples;
 
   ngAfterViewChecked(): void {
     if (this.shouldScroll) {
@@ -151,7 +148,7 @@ export class AppComponent implements AfterViewChecked {
 
   getDocumentLabel(source: string): string {
     if (!source) return 'Documento';
-    // s3://bucket/region/DOC-ID.md  →  region / DOC-ID
+    // s3://bucket/folder/DOC-ID.md  →  folder › DOC-ID
     const match = source.match(/\/([^/]+)\/([^/]+?)(?:\.md)?$/);
     if (match) return `${match[1]} › ${match[2]}`;
     const parts = source.split('/');
