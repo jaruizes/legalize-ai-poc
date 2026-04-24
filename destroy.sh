@@ -75,7 +75,7 @@ if [ -n "$KB_ID" ] && [ -n "$DS_ID" ]; then
   if [ "$RUNNING" -gt 0 ] 2>/dev/null; then
     warn "$RUNNING ingestion job(s) still running. Waiting for them to finish..."
     warn "(Bedrock ingestion jobs cannot be cancelled — this may take a few minutes.)"
-    JOB_ID=$(aws bedrock-agent list-ingestion-jobs --knowledge-base-id JJFIUB6ZVG --data-source-id 5TV2BHM02B --region eu-west-1 --query 'ingestionJobSummaries[?status==`IN_PROGRESS` || status==`STARTING`].ingestionJobId' --output text)
+    JOB_ID=$(aws bedrock-agent list-ingestion-jobs --knowledge-base-id "$KB_ID" --data-source-id "$DS_ID" --region "$REGION" --query 'ingestionJobSummaries[?status==`IN_PROGRESS` || status==`STARTING`].ingestionJobId' --output text)
 
     aws bedrock-agent stop-ingestion-job \
       --knowledge-base-id "$KB_ID" \
