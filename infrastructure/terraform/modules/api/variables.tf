@@ -34,12 +34,6 @@ variable "system_prompt" {
   default     = "You are a Spanish legislation expert assistant. Answer questions accurately and concisely based on the provided legal documents. Respond in the same language as the question. Always cite the specific laws and articles you reference."
 }
 
-variable "stage_name" {
-  description = "API Gateway deployment stage name"
-  type        = string
-  default     = "poc"
-}
-
 variable "lambda_runtime" {
   description = "Lambda runtime identifier"
   type        = string
@@ -47,9 +41,9 @@ variable "lambda_runtime" {
 }
 
 variable "lambda_timeout" {
-  description = "Lambda function timeout in seconds"
+  description = "Lambda function timeout in seconds. 120s allows long report-generation queries to complete."
   type        = number
-  default     = 30
+  default     = 120
 }
 
 variable "default_temperature" {
@@ -61,7 +55,6 @@ variable "default_temperature" {
 variable "default_max_tokens" {
   description = "Default maximum number of output tokens"
   type        = number
-  default     = 512
 }
 
 variable "default_top_p" {
@@ -79,5 +72,17 @@ variable "default_top_k" {
 variable "default_num_results" {
   description = "Default number of knowledge base chunks to retrieve"
   type        = number
-  default     = 5
+  default     = 20
+}
+
+variable "guardrail_grounding_threshold" {
+  description = "Contextual grounding check threshold (0–1). Responses below this score are blocked."
+  type        = number
+  default     = 0.4
+}
+
+variable "guardrail_relevance_threshold" {
+  description = "Relevance check threshold (0–1). Responses below this score are blocked."
+  type        = number
+  default     = 0.4
 }

@@ -1,3 +1,32 @@
+# ─── Bedrock Guardrail ────────────────────────────────────────────────────────
+# Contextual grounding checks that the generated answer is:
+#   · GROUNDING  — supported by the retrieved source chunks (reduces hallucination)
+#   · RELEVANCE  — actually answers the user's question (reduces off-topic responses)
+# Responses below the configured thresholds are blocked and replaced with a safe
+# message, without exposing raw model output to the user.
+
+resource "aws_bedrock_guardrail" "this" {
+  name                      = "${var.name_prefix}-guardrail"
+  blocked_input_messaging   = "Tu pregunta no parece estar relacionada con el contenido indexado. Por favor, formula una consulta sobre los documentos disponibles."
+  blocked_outputs_messaging = "La respuesta generada no está suficientemente fundamentada en los documentos disponibles. Por favor, reformula la pregunta o amplía los filtros."
+
+  contextual_grounding_policy_config {
+    filters_config {
+      type      = "GROUNDING"
+      threshold = var.guardrail_grounding_threshold
+    }
+    filters_config {
+      type      = "RELEVANCE"
+      threshold = var.guardrail_relevance_threshold
+    }
+  }
+}
+
+resource "aws_bedrock_guardrail_version" "this" {
+  guardrail_arn = aws_bedrock_guardrail.this.guardrail_arn
+  description   = "Managed by Terraform"
+}
+
 # ─── IAM ──────────────────────────────────────────────────────────────────────
 
 resource "aws_iam_role" "lambda" {
@@ -37,23 +66,27 @@ resource "aws_iam_role_policy" "lambda_bedrock" {
         Resource = "arn:aws:bedrock:${var.region}:${var.account_id}:knowledge-base/${var.knowledge_base_id}"
       },
       {
+        # Allow any inference profile owned by this account and any foundation model.
+        # This lets the user switch models from the UI without requiring a policy update.
         Sid      = "BedrockInvokeModel"
         Effect   = "Allow"
         Action   = "bedrock:InvokeModel"
         Resource = [
-          # Inference profile
-          "arn:aws:bedrock:${var.region}:${var.account_id}:inference-profile/${var.inference_profile_id}",
-          # Cross-region inference profiles (e.g., eu.amazon.nova-lite-v1:0)
-          "arn:aws:bedrock:*:${var.account_id}:inference-profile/${var.inference_profile_id}",
-          # Foundation model (used internally by RetrieveAndGenerate)
-          "arn:aws:bedrock:*::foundation-model/${var.generative_model_id}"
+          "arn:aws:bedrock:*:${var.account_id}:inference-profile/*",
+          "arn:aws:bedrock:*::foundation-model/*"
         ]
       },
       {
-        Action   = "bedrock:GetInferenceProfile",
-        Effect   = "Allow",
-        Resource = "arn:aws:bedrock:${var.region}:${var.account_id}:inference-profile/${var.inference_profile_id}",
         Sid      = "GetInferenceProfile"
+        Effect   = "Allow"
+        Action   = "bedrock:GetInferenceProfile"
+        Resource = "arn:aws:bedrock:*:${var.account_id}:inference-profile/*"
+      },
+      {
+        Sid      = "BedrockGuardrail"
+        Effect   = "Allow"
+        Action   = "bedrock:ApplyGuardrail"
+        Resource = "arn:aws:bedrock:${var.region}:${var.account_id}:guardrail/${aws_bedrock_guardrail.this.guardrail_id}"
       }
     ]
   })
@@ -63,8 +96,8 @@ resource "aws_iam_role_policy" "lambda_bedrock" {
 
 data "archive_file" "lambda" {
   type        = "zip"
-  source_dir = "${path.root}/../../lambda"
-  output_path = "${path.module}/lambda/handler.zip"
+  source_dir = "${path.root}/../../lambda/ask"
+  output_path = "${path.module}/lambda/ask/handler.zip"
   excludes    = [
     "venv",
     "__pycache__",
@@ -87,9 +120,13 @@ resource "aws_lambda_function" "ask" {
 
   environment {
     variables = {
-      KNOWLEDGE_BASE_ID     = var.knowledge_base_id
-      INFERENCE_PROFILE_ARN = "arn:aws:bedrock:${var.region}:${var.account_id}:inference-profile/${var.inference_profile_id}"
-      SYSTEM_PROMPT         = var.system_prompt
+      KNOWLEDGE_BASE_ID          = var.knowledge_base_id
+      INFERENCE_PROFILE_ARN      = "arn:aws:bedrock:${var.region}:${var.account_id}:inference-profile/${var.inference_profile_id}"
+      INFERENCE_PROFILE_ARN_BASE = "arn:aws:bedrock:${var.region}:${var.account_id}:inference-profile/"
+      FOUNDATION_MODEL_ARN_BASE  = "arn:aws:bedrock:${var.region}::foundation-model/"
+      GUARDRAIL_ID               = aws_bedrock_guardrail.this.guardrail_id
+      GUARDRAIL_VERSION          = aws_bedrock_guardrail_version.this.version
+      SYSTEM_PROMPT              = var.system_prompt
       DEFAULT_TEMPERATURE   = tostring(var.default_temperature)
       DEFAULT_MAX_TOKENS    = tostring(var.default_max_tokens)
       DEFAULT_TOP_P         = tostring(var.default_top_p)
@@ -99,68 +136,20 @@ resource "aws_lambda_function" "ask" {
   }
 }
 
-# ─── API Gateway ──────────────────────────────────────────────────────────────
+# ─── Lambda Function URL ──────────────────────────────────────────────────────
+# Replaces API Gateway to remove the hard 29-second integration timeout.
+# Lambda Function URLs support up to the full Lambda execution timeout (15 min),
+# which allows long-running synthesis and report-generation queries to complete.
 
-resource "aws_api_gateway_rest_api" "this" {
-  name        = "${var.name_prefix}-api"
-  description = "Legalize AI PoC — query Spanish legislation via RAG"
+resource "aws_lambda_function_url" "ask" {
+  function_name      = aws_lambda_function.ask.function_name
+  authorization_type = "NONE"
 
-  endpoint_configuration {
-    types = ["REGIONAL"]
+  cors {
+    allow_credentials = false
+    allow_origins     = ["*"]
+    allow_methods     = ["POST"]
+    allow_headers     = ["content-type"]
+    max_age           = 86400
   }
-}
-
-resource "aws_api_gateway_resource" "ask" {
-  rest_api_id = aws_api_gateway_rest_api.this.id
-  parent_id   = aws_api_gateway_rest_api.this.root_resource_id
-  path_part   = "ask"
-}
-
-resource "aws_api_gateway_method" "ask_post" {
-  rest_api_id   = aws_api_gateway_rest_api.this.id
-  resource_id   = aws_api_gateway_resource.ask.id
-  http_method   = "POST"
-  authorization = "NONE"
-}
-
-resource "aws_api_gateway_integration" "ask_post" {
-  rest_api_id             = aws_api_gateway_rest_api.this.id
-  resource_id             = aws_api_gateway_resource.ask.id
-  http_method             = aws_api_gateway_method.ask_post.http_method
-  integration_http_method = "POST"
-  type                    = "AWS_PROXY"
-  uri                     = aws_lambda_function.ask.invoke_arn
-}
-
-resource "aws_api_gateway_deployment" "this" {
-  rest_api_id = aws_api_gateway_rest_api.this.id
-
-  triggers = {
-    redeployment = sha1(jsonencode([
-      aws_api_gateway_resource.ask.id,
-      aws_api_gateway_method.ask_post.id,
-      aws_api_gateway_integration.ask_post.id,
-    ]))
-  }
-
-  depends_on = [aws_api_gateway_integration.ask_post]
-
-  lifecycle {
-    create_before_destroy = true
-  }
-}
-
-resource "aws_api_gateway_stage" "this" {
-  rest_api_id   = aws_api_gateway_rest_api.this.id
-  deployment_id = aws_api_gateway_deployment.this.id
-  stage_name    = var.stage_name
-}
-
-# Allow API Gateway to invoke the Lambda
-resource "aws_lambda_permission" "api_gateway" {
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.ask.function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_api_gateway_rest_api.this.execution_arn}/*/*"
 }

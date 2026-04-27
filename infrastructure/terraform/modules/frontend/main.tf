@@ -85,19 +85,20 @@ resource "aws_cloudfront_distribution" "this" {
     origin_access_control_id = aws_cloudfront_origin_access_control.frontend.id
   }
 
-  # ── API Gateway origin (backend) ───────────────────────────────────────────
+  # ── Lambda Function URL origin (backend) ───────────────────────────────────
+  # No stage path — Function URL exposes the Lambda directly at the root.
+  # origin_read_timeout raised to 120s to allow long report-generation queries
+  # to complete (API Gateway had a hard 29-second limit that cannot be raised).
   origin {
-    origin_id   = "api-gateway"
-    domain_name = var.api_gateway_domain
-    # CloudFront prepends origin_path to the forwarded path:
-    # /ask → origin receives var.api_gateway_stage_path + /ask (e.g. /poc/ask)
-    origin_path = var.api_gateway_stage_path
+    origin_id   = "lambda-url"
+    domain_name = var.api_domain
 
     custom_origin_config {
       http_port              = 80
       https_port             = 443
       origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
+      origin_read_timeout    = 120
     }
   }
 
@@ -113,10 +114,10 @@ resource "aws_cloudfront_distribution" "this" {
     cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6"
   }
 
-  # ── /ask behavior: proxy POST requests to API Gateway ─────────────────────
+  # ── /ask behavior: proxy POST requests to Lambda Function URL ─────────────
   ordered_cache_behavior {
     path_pattern           = "/ask"
-    target_origin_id       = "api-gateway"
+    target_origin_id       = "lambda-url"
     viewer_protocol_policy = "redirect-to-https"
     allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
     cached_methods         = ["GET", "HEAD"]

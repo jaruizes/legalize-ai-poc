@@ -24,6 +24,6 @@ locals {
 
   common_tags = {
     ManagedBy  = "Terraform"
-    Repository = "legalize-ai-poc"
+    Repository = "advanced-rag-ai-poc"
   }
 }

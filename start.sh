@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# start.sh — Full environment bootstrap for legalize-ai-poc
+# start.sh — Full environment bootstrap for advanced-ai-poc
 #
 # Steps:
 #   1. Verify prerequisites
@@ -59,6 +59,18 @@ warn "First-time deployment typically takes 10–15 minutes."
 terraform -chdir="$TF_DIR" apply -auto-approve -input=false
 
 success "Infrastructure ready."
+
+# ── Clean up Lambda ZIPs ───────────────────────────────────────────────────────
+section "Cleanup — Lambda ZIPs"
+for zip in \
+  "$SCRIPT_DIR/infrastructure/terraform/modules/api/lambda/ask/handler.zip" \
+  "$SCRIPT_DIR/lambda/enricher.zip"
+do
+  if [ -f "$zip" ]; then
+    rm "$zip"
+    success "Removed $zip"
+  fi
+done
 
 # ── Read outputs ───────────────────────────────────────────────────────────────
 section "Reading outputs"

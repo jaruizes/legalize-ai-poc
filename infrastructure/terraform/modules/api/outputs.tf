@@ -1,11 +1,6 @@
 output "api_endpoint" {
   description = "Invoke URL for the POST /ask endpoint"
-  value       = "${aws_api_gateway_stage.this.invoke_url}/ask"
-}
-
-output "api_id" {
-  description = "ID of the REST API"
-  value       = aws_api_gateway_rest_api.this.id
+  value       = "${aws_lambda_function_url.ask.function_url}ask"
 }
 
 output "lambda_function_name" {
@@ -18,12 +13,8 @@ output "lambda_function_arn" {
   value       = aws_lambda_function.ask.arn
 }
 
-output "api_gateway_domain" {
-  description = "API Gateway domain name without scheme (for CloudFront origin)"
-  value       = "${aws_api_gateway_rest_api.this.id}.execute-api.${var.region}.amazonaws.com"
-}
-
-output "api_stage_path" {
-  description = "API Gateway stage path used as CloudFront origin path (e.g. /poc)"
-  value       = "/${var.stage_name}"
+output "api_domain" {
+  description = "Lambda Function URL domain without scheme (for CloudFront origin)"
+  # function_url is "https://<id>.lambda-url.<region>.on.aws/" — strip scheme and trailing slash
+  value = trimsuffix(trimprefix(aws_lambda_function_url.ask.function_url, "https://"), "/")
 }

@@ -14,12 +14,25 @@ export interface Message {
   showCitations?: boolean;
 }
 
+export interface BedrockModel {
+  label: string;
+  id: string;
+}
+
+export interface AskFilters {
+  ring?: string;
+  quadrant?: string;
+  editions?: string[];
+}
+
 export interface AskRequest {
   question: string;
-  temperature?: number;
+  model_id?: string;
   max_tokens?: number;
+  temperature?: number;
   top_p?: number;
   num_results?: number;
+  filters?: AskFilters;
 }
 
 export interface AskResponse {

@@ -3,6 +3,11 @@ variable "kb_name" {
   type        = string
 }
 
+variable "name_prefix" {
+  description = "Name prefix applied to all resources"
+  type        = string
+}
+
 variable "embedding_model_arn" {
   description = "ARN of the embedding model"
   type        = string

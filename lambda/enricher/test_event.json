@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "bucketName": "advanced-ai-poc-dev-bedrock-temp-169697693654",
+  "knowledgeBaseId": "XPTBIZ5WPT",
+  "dataSourceId": "LVJLXLGMHV",
+  "ingestionJobId": "TAEUE4ZXF6",
+  "priorTask": "CHUNKING",
+  "inputFiles": [
+    {
+      "contentBatches": [
+        {
+          "key": "aws/bedrock/knowledge_bases/XPTBIZ5WPT/LVJLXLGMHV/TAEUE4ZXF6/tr_technology_radar_vol_33_en_1.JSON"
+        },
+        {
+          "key": "aws/bedrock/knowledge_bases/XPTBIZ5WPT/LVJLXLGMHV/TAEUE4ZXF6/tr_technology_radar_vol_33_en_2.JSON"
+        }
+      ],
+      "originalFileLocation": {
+        "type": "S3",
+        "s3_location": {
+          "uri": "s3://advanced-ai-poc-dev-data-169697693654-euw1/tr_technology_radar_vol_33_en.pdf"
+        }
+      }
+    }
+  ]
+}

@@ -5,10 +5,10 @@ module "s3_source_bucket" {
 
 # Fetch the latest commit hash of the legislation repository to trigger sync on changes
 data "external" "repo_commit" {
-  program = ["sh", "-c", "echo \"{\\\"sha\\\": \\\"$(git ls-remote ${var.legalize_es_repo_url} HEAD | cut -f1)\\\"}\""]
+  program = ["sh", "-c", "echo \"{\\\"sha\\\": \\\"$(git ls-remote ${var.datasource_repo_url} HEAD | cut -f1)\\\"}\""]
 }
 
-resource "terraform_data" "sync_legalize_es" {
+resource "terraform_data" "sync_documents" {
   triggers_replace = [
     data.external.repo_commit.result.sha
   ]
@@ -16,8 +16,9 @@ resource "terraform_data" "sync_legalize_es" {
   provisioner "local-exec" {
     command = <<-EOT
       TEMP_DIR=$(mktemp -d)
-      git clone --depth 1 ${var.legalize_es_repo_url} $TEMP_DIR
-      aws s3 sync $TEMP_DIR s3://${module.s3_source_bucket.bucket_name}/ --delete --exclude \".git/*\" --region ${local.region}
+      git clone --depth 1 ${var.datasource_repo_url} $TEMP_DIR
+      rm -rf $TEMP_DIR/.git
+      aws s3 sync $TEMP_DIR s3://${module.s3_source_bucket.bucket_name}/ --delete --region ${local.region}
       rm -rf $TEMP_DIR
     EOT
   }
@@ -38,6 +39,7 @@ module "bedrock_kb" {
   source = "./modules/bedrock_kb"
 
   account_id          = local.account_id
+  name_prefix         = local.name_prefix
   collection_arn      = module.vector_store.collection_arn
   embedding_model_arn = local.bedrock_model_arn
   kb_name             = local.bedrock_kb_name
@@ -67,15 +69,18 @@ module "api" {
   system_prompt        = var.api_system_prompt
   inference_profile_id = var.inference_profile_id
   generative_model_id  = var.generative_model_id
+  default_max_tokens   = var.default_max_tokens
+
+  guardrail_grounding_threshold = var.guardrail_grounding_threshold
+  guardrail_relevance_threshold = var.guardrail_relevance_threshold
 }
 
 module "frontend" {
   source = "./modules/frontend"
 
-  name_prefix            = local.name_prefix
-  bucket_name            = "${local.name_prefix}-frontend-${local.account_id}-${local.region_short}"
-  api_gateway_domain     = module.api.api_gateway_domain
-  api_gateway_stage_path = module.api.api_stage_path
+  name_prefix = local.name_prefix
+  bucket_name = "${local.name_prefix}-frontend-${local.account_id}-${local.region_short}"
+  api_domain  = module.api.api_domain
 
   ui_title      = var.ui_title
   ui_subtitle   = var.ui_subtitle

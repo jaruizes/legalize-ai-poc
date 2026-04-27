@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# destroy.sh — Tears down the full legalize-ai-poc environment
+# destroy.sh — Tears down the full advanced-ai-poc environment
 #
 # Steps:
 #   1. Verify prerequisites

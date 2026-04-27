@@ -8,13 +8,8 @@ variable "bucket_name" {
   type        = string
 }
 
-variable "api_gateway_domain" {
-  description = "API Gateway domain name without scheme (e.g. abc.execute-api.eu-west-1.amazonaws.com)"
-  type        = string
-}
-
-variable "api_gateway_stage_path" {
-  description = "API Gateway stage path used as CloudFront origin path (e.g. /poc)"
+variable "api_domain" {
+  description = "Lambda Function URL domain without scheme (e.g. abc.lambda-url.eu-west-1.on.aws)"
   type        = string
 }
 

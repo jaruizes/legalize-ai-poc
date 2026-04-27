@@ -9,8 +9,9 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ApiService } from './services/api.service';
-import { Message } from './models/chat.model';
+import { Message, BedrockModel } from './models/chat.model';
 import { environment } from '../environments/environment';
 
 @Component({
@@ -22,6 +23,7 @@ import { environment } from '../environments/environment';
 })
 export class AppComponent implements AfterViewChecked {
   private apiService = inject(ApiService);
+  private sanitizer = inject(DomSanitizer);
 
   @ViewChild('messagesContainer') messagesContainer!: ElementRef<HTMLDivElement>;
   @ViewChild('inputTextarea') inputTextarea!: ElementRef<HTMLTextAreaElement>;
@@ -35,6 +37,17 @@ export class AppComponent implements AfterViewChecked {
 
   readonly ui = environment.ui;
   readonly examples = environment.ui.examples;
+  readonly models: BedrockModel[] = environment.ui.models;
+
+  selectedModelId = signal(environment.ui.defaultModelId);
+  maxTokens = signal(environment.ui.defaultMaxTokens);
+  numResults = signal(environment.ui.defaultNumResults);
+  settingsOpen = signal(false);
+
+  readonly filterOptions = environment.ui.filterOptions;
+  filterRing = signal('');
+  filterQuadrant = signal('');
+  filterEditions = signal<string[]>([]);
 
   ngAfterViewChecked(): void {
     if (this.shouldScroll) {
@@ -91,23 +104,27 @@ export class AppComponent implements AfterViewChecked {
 
     const loadingId = loadingMsg.id;
 
-    this.apiService.ask({ question }).subscribe({
+    const filters: Record<string, unknown> = {};
+    if (this.filterRing()) filters['ring'] = this.filterRing();
+    if (this.filterQuadrant()) filters['quadrant'] = this.filterQuadrant();
+    if (this.filterEditions().length) filters['editions'] = this.filterEditions();
+
+    this.apiService.ask({
+      question,
+      model_id: this.selectedModelId(),
+      max_tokens: this.maxTokens(),
+      num_results: this.numResults(),
+      ...(Object.keys(filters).length ? { filters } : {}),
+    }).subscribe({
       next: (response) => {
         this.messages.update((msgs) =>
           msgs.map((m) =>
             m.id === loadingId
-              ? {
-                  ...m,
-                  content: response.answer,
-                  citations: response.citations,
-                  loading: false,
-                  showCitations: false,
-                }
+              ? { ...m, citations: response.citations, showCitations: false, loading: false, content: '' }
               : m,
           ),
         );
-        this.isLoading.set(false);
-        this.shouldScroll = true;
+        this.animateTyping(loadingId, response.answer);
       },
       error: () => {
         this.messages.update((msgs) =>
@@ -127,6 +144,63 @@ export class AppComponent implements AfterViewChecked {
         this.shouldScroll = true;
       },
     });
+  }
+
+  private animateTyping(messageId: string, fullText: string): void {
+    // Split preserving whitespace so spacing/newlines are reproduced exactly.
+    const tokens = fullText.split(/(\s+)/);
+    let index = 0;
+
+    const tick = () => {
+      if (index >= tokens.length) {
+        // Ensure final content is pixel-perfect (no rounding artifacts from batching).
+        this.messages.update((msgs) =>
+          msgs.map((m) => (m.id === messageId ? { ...m, content: fullText } : m)),
+        );
+        this.isLoading.set(false);
+        this.shouldScroll = true;
+        return;
+      }
+      // Reveal up to 4 tokens per tick (~2 words + their surrounding spaces).
+      const next = Math.min(index + 4, tokens.length);
+      const revealed = tokens.slice(0, next).join('');
+      index = next;
+      this.messages.update((msgs) =>
+        msgs.map((m) => (m.id === messageId ? { ...m, content: revealed } : m)),
+      );
+      this.shouldScroll = true;
+      setTimeout(tick, 20);
+    };
+
+    setTimeout(tick, 20);
+  }
+
+  toggleSettings(): void {
+    this.settingsOpen.update(v => !v);
+  }
+
+  toggleEdition(edition: string): void {
+    this.filterEditions.update(eds =>
+      eds.includes(edition) ? eds.filter(e => e !== edition) : [...eds, edition]
+    );
+  }
+
+  isEditionSelected(edition: string): boolean {
+    return this.filterEditions().includes(edition);
+  }
+
+  hasActiveFilters(): boolean {
+    return !!(this.filterRing() || this.filterQuadrant() || this.filterEditions().length);
+  }
+
+  clearFilters(): void {
+    this.filterRing.set('');
+    this.filterQuadrant.set('');
+    this.filterEditions.set([]);
+  }
+
+  selectedModelLabel(): string {
+    return this.models.find(m => m.id === this.selectedModelId())?.label ?? this.selectedModelId();
   }
 
   useExample(example: string): void {
@@ -161,4 +235,88 @@ export class AppComponent implements AfterViewChecked {
     const meta = citation.metadata as Record<string, string>;
     return meta?.['title'] ?? meta?.['name'] ?? '';
   }
+
+  renderContent(raw: string): SafeHtml {
+    return this.sanitizer.bypassSecurityTrustHtml(markdownToHtml(raw));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Markdown → HTML (no external dependency)
+// ---------------------------------------------------------------------------
+
+function markdownToHtml(raw: string): string {
+  // Replace Bedrock inline citation markers before markdown processing.
+  // Bedrock emits patterns like: (Passage %[3]%, página 14)  or bare %[3]%
+  let text = raw
+    .replace(/\s*\(Passage\s+%\[(\d+)\]%[^)]*\)/g, ' <sup class="cite-ref">[$1]</sup>')
+    .replace(/%\[(\d+)\]%/g, '<sup class="cite-ref">[$1]</sup>');
+
+  const blocks: string[] = [];
+  let inUl = false;
+  let inOl = false;
+
+  const closeList = () => {
+    if (inUl) { blocks.push('</ul>'); inUl = false; }
+    if (inOl) { blocks.push('</ol>'); inOl = false; }
+  };
+
+  for (const line of text.split('\n')) {
+    // Headings h1–h4
+    const heading = line.match(/^(#{1,4})\s+(.*)/);
+    if (heading) {
+      closeList();
+      const lvl = heading[1].length;
+      blocks.push(`<h${lvl}>${inlineMd(heading[2])}</h${lvl}>`);
+      continue;
+    }
+
+    // Unordered list item
+    const ulItem = line.match(/^[*\-]\s+(.*)/);
+    if (ulItem) {
+      if (inOl) { blocks.push('</ol>'); inOl = false; }
+      if (!inUl) { blocks.push('<ul>'); inUl = true; }
+      blocks.push(`<li>${inlineMd(ulItem[1])}</li>`);
+      continue;
+    }
+
+    // Ordered list item
+    const olItem = line.match(/^\d+\.\s+(.*)/);
+    if (olItem) {
+      if (inUl) { blocks.push('</ul>'); inUl = false; }
+      if (!inOl) { blocks.push('<ol>'); inOl = true; }
+      blocks.push(`<li>${inlineMd(olItem[1])}</li>`);
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) {
+      closeList();
+      blocks.push('<hr>');
+      continue;
+    }
+
+    // Empty line — close any open list, skip
+    if (line.trim() === '') {
+      closeList();
+      continue;
+    }
+
+    // Paragraph
+    closeList();
+    blocks.push(`<p>${inlineMd(line)}</p>`);
+  }
+
+  closeList();
+  return blocks.join('');
+}
+
+function inlineMd(text: string): string {
+  return text
+    .replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/_(.+?)_/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>');
 }

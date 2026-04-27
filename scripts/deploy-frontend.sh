@@ -41,29 +41,44 @@ echo ""
 echo "💉 Injecting UI variables into environment.ts..."
 
 python3 - <<EOF
-import json
-import os
+import json, re
 
 env_path = "$APP_DIR/src/environments/environment.ts"
 with open(env_path, "r") as f:
     content = f.read()
 
-# Simple replacement strategy for our environment.ts structure
-ui_config = {
-    "title": """$UI_TITLE""",
-    "subtitle": """$UI_SUBTITLE""",
-    "icon": """$UI_ICON""",
-    "examples": json.loads("""$UI_EXAMPLES_JSON"""),
-    "disclaimer": """$UI_DISCLAIMER"""
-}
+# Replace each Terraform-controlled field individually so that fields managed
+# by the app (defaultModelId, defaultMaxTokens, models) are never touched.
 
-# Find the ui: { ... } block and replace it
-import re
-new_ui_str = "ui: " + json.dumps(ui_config, indent=4, ensure_ascii=False)
-content = re.sub(r"ui:\s*\{[\s\S]*?\}", new_ui_str, content)
+def replace_string_field(text, key, value):
+    """Replace:  key: "old"  ->  key: "new"  (anywhere in the file)."""
+    return re.sub(
+        r'(' + re.escape(key) + r':\s*)"[^"]*"',
+        r'\g<1>' + json.dumps(value, ensure_ascii=False),
+        text,
+    )
+
+def replace_array_field(text, key, value):
+    """Replace a flat string-array field:  key: [ ... ]  ->  key: [ ... ]"""
+    new_array = json.dumps(value, ensure_ascii=False, indent=8)
+    # [\s\S]*? is non-greedy; safe here because examples contains only strings
+    # (no nested brackets), so the first ] encountered is the closing bracket.
+    return re.sub(
+        r'(' + re.escape(key) + r':\s*)\[[\s\S]*?\]',
+        r'\g<1>' + new_array,
+        text,
+    )
+
+content = replace_string_field(content, "title",      """$UI_TITLE""")
+content = replace_string_field(content, "subtitle",   """$UI_SUBTITLE""")
+content = replace_string_field(content, "icon",       """$UI_ICON""")
+content = replace_string_field(content, "disclaimer", """$UI_DISCLAIMER""")
+content = replace_array_field(content,  "examples",   json.loads("""$UI_EXAMPLES_JSON"""))
 
 with open(env_path, "w") as f:
     f.write(content)
+
+print("   Fields updated: title, subtitle, icon, disclaimer, examples")
 EOF
 
 # ── 3. Install dependencies ───────────────────────────────────────────────────

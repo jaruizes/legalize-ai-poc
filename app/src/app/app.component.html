@@ -7,13 +7,143 @@
         <span class="header__icon">{{ ui.icon }}</span>
         <span class="header__title">{{ ui.title }}</span>
       </div>
-      @if (hasMessages()) {
-        <button class="btn-ghost" (click)="clearChat()" title="Nueva conversación">
+      <div class="header__actions">
+        <!-- Settings toggle -->
+        <button
+          class="btn-ghost btn-ghost--icon"
+          (click)="toggleSettings()"
+          [class.btn-ghost--active]="settingsOpen()"
+          title="Configuración del modelo"
+        >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 5v14M5 12h14"/>
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
-          Nueva consulta
+          {{ selectedModelLabel() }}
         </button>
+
+        @if (hasMessages()) {
+          <button class="btn-ghost" (click)="clearChat()" title="Nueva conversación">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            Nueva conversación
+          </button>
+        }
+      </div>
+
+      <!-- Settings panel -->
+      @if (settingsOpen()) {
+        <div class="settings-panel">
+
+          <!-- Model -->
+          <div class="settings-panel__row">
+            <label class="settings-panel__label" for="model-select">Modelo</label>
+            <select
+              id="model-select"
+              class="settings-panel__select"
+              [value]="selectedModelId()"
+              (change)="selectedModelId.set($any($event.target).value)"
+            >
+              @for (model of models; track model.id) {
+                <option [value]="model.id" [selected]="model.id === selectedModelId()">
+                  {{ model.label }}
+                </option>
+              }
+            </select>
+          </div>
+
+          <!-- Max tokens -->
+          <div class="settings-panel__row">
+            <label class="settings-panel__label" for="max-tokens">
+              Tokens máx.
+              <span class="settings-panel__value">{{ maxTokens() }}</span>
+            </label>
+            <input
+              id="max-tokens"
+              type="range"
+              class="settings-panel__range"
+              min="256"
+              max="4096"
+              step="256"
+              [value]="maxTokens()"
+              (input)="maxTokens.set(+$any($event.target).value)"
+            />
+          </div>
+
+          <!-- Num results -->
+          <div class="settings-panel__row">
+            <label class="settings-panel__label" for="num-results">
+              Fragmentos recuperados
+              <span class="settings-panel__value">{{ numResults() }}</span>
+            </label>
+            <input
+              id="num-results"
+              type="range"
+              class="settings-panel__range"
+              min="5"
+              max="100"
+              step="5"
+              [value]="numResults()"
+              (input)="numResults.set(+$any($event.target).value)"
+            />
+          </div>
+
+          <!-- ── Filters ──────────────────────────────────── -->
+          <div class="settings-panel__section-title">
+            Filtros de recuperación
+            @if (hasActiveFilters()) {
+              <button class="settings-panel__clear-btn" (click)="clearFilters()">Limpiar</button>
+            }
+          </div>
+
+          <!-- Ring filter -->
+          <div class="settings-panel__row">
+            <label class="settings-panel__label" for="filter-ring">Anillo</label>
+            <select
+              id="filter-ring"
+              class="settings-panel__select"
+              [value]="filterRing()"
+              (change)="filterRing.set($any($event.target).value)"
+            >
+              <option value="">Todos</option>
+              @for (ring of filterOptions.rings; track ring) {
+                <option [value]="ring" [selected]="ring === filterRing()">{{ ring }}</option>
+              }
+            </select>
+          </div>
+
+          <!-- Quadrant filter -->
+          <div class="settings-panel__row">
+            <label class="settings-panel__label" for="filter-quadrant">Cuadrante</label>
+            <select
+              id="filter-quadrant"
+              class="settings-panel__select"
+              [value]="filterQuadrant()"
+              (change)="filterQuadrant.set($any($event.target).value)"
+            >
+              <option value="">Todos</option>
+              @for (q of filterOptions.quadrants; track q) {
+                <option [value]="q" [selected]="q === filterQuadrant()">{{ q }}</option>
+              }
+            </select>
+          </div>
+
+          <!-- Editions filter -->
+          <div class="settings-panel__row settings-panel__row--wrap">
+            <label class="settings-panel__label">Ediciones</label>
+            <div class="settings-panel__chips">
+              @for (ed of filterOptions.editions; track ed) {
+                <button
+                  class="chip"
+                  [class.chip--active]="isEditionSelected(ed)"
+                  (click)="toggleEdition(ed)"
+                >{{ ed }}</button>
+              }
+            </div>
+          </div>
+
+        </div>
       }
     </div>
   </header>
@@ -56,11 +186,12 @@
           <!-- Assistant message -->
           @if (msg.role === 'assistant') {
             <div class="msg msg--assistant">
-              <div class="msg__avatar" aria-hidden="true">⚖️</div>
+              <div class="msg__avatar" aria-hidden="true">{{ ui.icon }}</div>
               <div class="msg__body">
 
                 @if (msg.loading) {
-                  <div class="msg__bubble msg__bubble--assistant">
+                  <div class="msg__bubble msg__bubble--assistant msg__bubble--loading">
+                    <span class="loading-label">Generando respuesta</span>
                     <span class="dots">
                       <span></span><span></span><span></span>
                     </span>
@@ -69,7 +200,8 @@
                   <div
                     class="msg__bubble msg__bubble--assistant"
                     [class.msg__bubble--error]="msg.error"
-                  >{{ msg.content }}</div>
+                    [innerHTML]="renderContent(msg.content)"
+                  ></div>
 
                   <!-- Citations -->
                   @if (msg.citations && msg.citations.length > 0) {
@@ -87,7 +219,7 @@
                           <polyline points="10 9 9 9 8 9"/>
                         </svg>
                         {{ msg.citations.length }}
-                        {{ msg.citations.length === 1 ? 'fuente consultada' : 'fuentes consultadas' }}
+                        {{ msg.citations.length === 1 ? 'referencia' : 'referencias' }}
                         <svg
                           class="citations__chevron"
                           [class.citations__chevron--open]="msg.showCitations"
