@@ -7,51 +7,47 @@
 }
 
 :root {
-  /* Tech & Cheerful Palette */
-  --bg-primary: #0a0b1e;
-  --bg-secondary: rgba(255, 255, 255, 0.05);
-  --bg-hover: rgba(255, 255, 255, 0.1);
-  --bg-input: rgba(13, 14, 38, 0.8);
-  
-  --text-primary: #f0f2f5;
-  --text-secondary: #b0b3b8;
-  --text-muted: #65676b;
-  
-  /* Neon Accents */
-  --accent: #00f2ff;
-  --accent-secondary: #7000ff;
-  --accent-hover: #00dce6;
-  --accent-glow: rgba(0, 242, 255, 0.4);
-  
-  --border: rgba(255, 255, 255, 0.1);
-  --border-input: rgba(0, 242, 255, 0.2);
-  
-  --user-bubble: linear-gradient(135deg, #7000ff 0%, #00f2ff 100%);
-  --assistant-bubble: rgba(255, 255, 255, 0.03);
-  
-  --error: #ff4b4b;
-  --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
-  --glass: blur(12px) saturate(180%);
+  /* Editorial / Journalistic Palette */
+  --bg-primary: #f7f3ec;
+  --bg-secondary: #efe9de;
+  --bg-hover: #e6dece;
+  --bg-input: #ffffff;
+
+  --text-primary: #1c1814;
+  --text-secondary: #5c5650;
+  --text-muted: #a09488;
+
+  /* Editorial accent — deep red, like print ink */
+  --accent: #8b1c1c;
+  --accent-secondary: #5c3020;
+  --accent-hover: #6e1515;
+  --accent-glow: rgba(139, 28, 28, 0.12);
+
+  --border: #ddd4c4;
+  --border-input: #c8bfb0;
+
+  /* User bubble — dark ink on paper */
+  --user-bubble: #1c1814;
+  /* Assistant bubble — white card */
+  --assistant-bubble: #ffffff;
+
+  --error: #c0392b;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.07);
 }
 
 html,
 body {
   height: 100%;
   background-color: var(--bg-primary);
-  /* Animated mesh gradient for a "cheerful" tech feel */
-  background-image: 
-    radial-gradient(at 0% 0%, rgba(112, 0, 255, 0.15) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, rgba(0, 242, 255, 0.1) 0px, transparent 50%);
-  background-attachment: fixed;
   color: var(--text-primary);
-  font-family: 'Outfit', 'Inter', -apple-system, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   font-size: 15px;
-  line-height: 1.6;
+  line-height: 1.65;
   -webkit-font-smoothing: antialiased;
 }
 
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -59,20 +55,17 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--border);
   border-radius: 10px;
-  border: 2px solid transparent;
-  background-clip: content-box;
 
   &:hover {
-    background: rgba(0, 242, 255, 0.3);
-    background-clip: content-box;
+    background: var(--text-muted);
   }
 }
 
 ::selection {
-  background: rgba(0, 242, 255, 0.3);
-  color: #fff;
+  background: rgba(139, 28, 28, 0.15);
+  color: var(--text-primary);
 }
 
 button {

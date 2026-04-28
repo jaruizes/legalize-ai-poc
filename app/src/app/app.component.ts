@@ -44,10 +44,18 @@ export class AppComponent implements AfterViewChecked {
   numResults = signal(environment.ui.defaultNumResults);
   settingsOpen = signal(false);
 
+  // System prompt — editable by user, defaults to the prompt defined in environment
+  systemPrompt = signal(environment.ui.defaultSystemPrompt);
+
   readonly filterOptions = environment.ui.filterOptions;
   filterRing = signal('');
   filterQuadrant = signal('');
   filterEditions = signal<string[]>([]);
+
+  // Session state
+  sessionId = signal<string | null>(null);
+  sessionQuestions = signal<string[]>([]);
+  sidebarOpen = signal(false);
 
   ngAfterViewChecked(): void {
     if (this.shouldScroll) {
@@ -97,6 +105,12 @@ export class AppComponent implements AfterViewChecked {
     };
 
     this.messages.update((msgs) => [...msgs, userMsg, loadingMsg]);
+    this.sessionQuestions.update((qs) => [...qs, question]);
+    // Generate a local session ID on the first message of each conversation.
+    // It is display-only — Bedrock sessions are not used.
+    if (!this.sessionId()) {
+      this.sessionId.set(crypto.randomUUID());
+    }
     this.inputValue = '';
     this.resetTextarea();
     this.isLoading.set(true);
@@ -114,6 +128,7 @@ export class AppComponent implements AfterViewChecked {
       model_id: this.selectedModelId(),
       max_tokens: this.maxTokens(),
       num_results: this.numResults(),
+      system_prompt: this.systemPrompt(),
       ...(Object.keys(filters).length ? { filters } : {}),
     }).subscribe({
       next: (response) => {
@@ -147,13 +162,11 @@ export class AppComponent implements AfterViewChecked {
   }
 
   private animateTyping(messageId: string, fullText: string): void {
-    // Split preserving whitespace so spacing/newlines are reproduced exactly.
     const tokens = fullText.split(/(\s+)/);
     let index = 0;
 
     const tick = () => {
       if (index >= tokens.length) {
-        // Ensure final content is pixel-perfect (no rounding artifacts from batching).
         this.messages.update((msgs) =>
           msgs.map((m) => (m.id === messageId ? { ...m, content: fullText } : m)),
         );
@@ -161,7 +174,6 @@ export class AppComponent implements AfterViewChecked {
         this.shouldScroll = true;
         return;
       }
-      // Reveal up to 4 tokens per tick (~2 words + their surrounding spaces).
       const next = Math.min(index + 4, tokens.length);
       const revealed = tokens.slice(0, next).join('');
       index = next;
@@ -177,6 +189,10 @@ export class AppComponent implements AfterViewChecked {
 
   toggleSettings(): void {
     this.settingsOpen.update(v => !v);
+  }
+
+  toggleSidebar(): void {
+    this.sidebarOpen.update(v => !v);
   }
 
   toggleEdition(edition: string): void {
@@ -218,22 +234,22 @@ export class AppComponent implements AfterViewChecked {
 
   clearChat(): void {
     this.messages.set([]);
+    this.sessionId.set(null);
+    this.sessionQuestions.set([]);
+  }
+
+  shortSessionId(): string {
+    const id = this.sessionId();
+    if (!id) return '';
+    return id.length > 12 ? id.slice(0, 8) + '…' : id;
   }
 
   getDocumentLabel(source: string): string {
     if (!source) return 'Documento';
-    // s3://bucket/folder/DOC-ID.md  →  folder › DOC-ID
     const match = source.match(/\/([^/]+)\/([^/]+?)(?:\.md)?$/);
     if (match) return `${match[1]} › ${match[2]}`;
     const parts = source.split('/');
     return parts[parts.length - 1].replace('.md', '') || source;
-  }
-
-  getMetadataTitle(message: Message, index: number): string {
-    const citation = message.citations?.[index];
-    if (!citation) return '';
-    const meta = citation.metadata as Record<string, string>;
-    return meta?.['title'] ?? meta?.['name'] ?? '';
   }
 
   renderContent(raw: string): SafeHtml {
@@ -246,8 +262,6 @@ export class AppComponent implements AfterViewChecked {
 // ---------------------------------------------------------------------------
 
 function markdownToHtml(raw: string): string {
-  // Replace Bedrock inline citation markers before markdown processing.
-  // Bedrock emits patterns like: (Passage %[3]%, página 14)  or bare %[3]%
   let text = raw
     .replace(/\s*\(Passage\s+%\[(\d+)\]%[^)]*\)/g, ' <sup class="cite-ref">[$1]</sup>')
     .replace(/%\[(\d+)\]%/g, '<sup class="cite-ref">[$1]</sup>');
@@ -262,7 +276,6 @@ function markdownToHtml(raw: string): string {
   };
 
   for (const line of text.split('\n')) {
-    // Headings h1–h4
     const heading = line.match(/^(#{1,4})\s+(.*)/);
     if (heading) {
       closeList();
@@ -271,7 +284,6 @@ function markdownToHtml(raw: string): string {
       continue;
     }
 
-    // Unordered list item
     const ulItem = line.match(/^[*\-]\s+(.*)/);
     if (ulItem) {
       if (inOl) { blocks.push('</ol>'); inOl = false; }
@@ -280,7 +292,6 @@ function markdownToHtml(raw: string): string {
       continue;
     }
 
-    // Ordered list item
     const olItem = line.match(/^\d+\.\s+(.*)/);
     if (olItem) {
       if (inUl) { blocks.push('</ul>'); inUl = false; }
@@ -289,20 +300,17 @@ function markdownToHtml(raw: string): string {
       continue;
     }
 
-    // Horizontal rule
     if (/^---+$/.test(line.trim())) {
       closeList();
       blocks.push('<hr>');
       continue;
     }
 
-    // Empty line — close any open list, skip
     if (line.trim() === '') {
       closeList();
       continue;
     }
 
-    // Paragraph
     closeList();
     blocks.push(`<p>${inlineMd(line)}</p>`);
   }

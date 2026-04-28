@@ -3,19 +3,37 @@
   <!-- ── Header ─────────────────────────────────────────────── -->
   <header class="header">
     <div class="header__inner">
+
       <div class="header__brand">
-        <span class="header__icon">{{ ui.icon }}</span>
-        <span class="header__title">{{ ui.title }}</span>
+        <!-- Sidebar toggle -->
+        <button
+          class="btn-icon"
+          (click)="toggleSidebar()"
+          [class.btn-icon--active]="sidebarOpen()"
+          title="Sesión actual"
+          aria-label="Alternar panel de sesión"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="6" x2="21" y2="6"/>
+            <line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="18" x2="15" y2="18"/>
+          </svg>
+        </button>
+        <div class="header__title-group">
+          <span class="header__title">{{ ui.title }}</span>
+          <span class="header__kicker">Thoughtworks Technology Radar</span>
+        </div>
       </div>
+
       <div class="header__actions">
         <!-- Settings toggle -->
         <button
-          class="btn-ghost btn-ghost--icon"
+          class="btn-ghost"
           (click)="toggleSettings()"
           [class.btn-ghost--active]="settingsOpen()"
-          title="Configuración del modelo"
+          title="Configuración"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
@@ -23,277 +41,342 @@
         </button>
 
         @if (hasMessages()) {
-          <button class="btn-ghost" (click)="clearChat()" title="Nueva conversación">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <button class="btn-ghost btn-ghost--new" (click)="clearChat()" title="Nueva conversación">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 5v14M5 12h14"/>
             </svg>
-            Nueva conversación
+            Nueva entrevista
           </button>
         }
       </div>
+    </div>
 
-      <!-- Settings panel -->
-      @if (settingsOpen()) {
-        <div class="settings-panel">
+    <!-- Settings panel -->
+    @if (settingsOpen()) {
+      <div class="settings-panel">
 
-          <!-- Model -->
-          <div class="settings-panel__row">
-            <label class="settings-panel__label" for="model-select">Modelo</label>
-            <select
-              id="model-select"
-              class="settings-panel__select"
-              [value]="selectedModelId()"
-              (change)="selectedModelId.set($any($event.target).value)"
-            >
-              @for (model of models; track model.id) {
-                <option [value]="model.id" [selected]="model.id === selectedModelId()">
-                  {{ model.label }}
-                </option>
-              }
-            </select>
-          </div>
+        <!-- Model -->
+        <div class="settings-panel__row">
+          <label class="settings-panel__label" for="model-select">Modelo</label>
+          <select
+            id="model-select"
+            class="settings-panel__select"
+            [value]="selectedModelId()"
+            (change)="selectedModelId.set($any($event.target).value)"
+          >
+            @for (model of models; track model.id) {
+              <option [value]="model.id" [selected]="model.id === selectedModelId()">
+                {{ model.label }}
+              </option>
+            }
+          </select>
+        </div>
 
-          <!-- Max tokens -->
-          <div class="settings-panel__row">
-            <label class="settings-panel__label" for="max-tokens">
-              Tokens máx.
-              <span class="settings-panel__value">{{ maxTokens() }}</span>
-            </label>
-            <input
-              id="max-tokens"
-              type="range"
-              class="settings-panel__range"
-              min="256"
-              max="4096"
-              step="256"
-              [value]="maxTokens()"
-              (input)="maxTokens.set(+$any($event.target).value)"
-            />
-          </div>
+        <!-- Max tokens -->
+        <div class="settings-panel__row">
+          <label class="settings-panel__label" for="max-tokens">
+            Tokens máx.
+            <span class="settings-panel__value">{{ maxTokens() }}</span>
+          </label>
+          <input
+            id="max-tokens"
+            type="range"
+            class="settings-panel__range"
+            min="256"
+            max="4096"
+            step="256"
+            [value]="maxTokens()"
+            (input)="maxTokens.set(+$any($event.target).value)"
+          />
+        </div>
 
-          <!-- Num results -->
-          <div class="settings-panel__row">
-            <label class="settings-panel__label" for="num-results">
-              Fragmentos recuperados
-              <span class="settings-panel__value">{{ numResults() }}</span>
-            </label>
-            <input
-              id="num-results"
-              type="range"
-              class="settings-panel__range"
-              min="5"
-              max="100"
-              step="5"
-              [value]="numResults()"
-              (input)="numResults.set(+$any($event.target).value)"
-            />
-          </div>
+        <!-- Num results -->
+        <div class="settings-panel__row">
+          <label class="settings-panel__label" for="num-results">
+            Fragmentos recuperados
+            <span class="settings-panel__value">{{ numResults() }}</span>
+          </label>
+          <input
+            id="num-results"
+            type="range"
+            class="settings-panel__range"
+            min="5"
+            max="100"
+            step="5"
+            [value]="numResults()"
+            (input)="numResults.set(+$any($event.target).value)"
+          />
+        </div>
 
-          <!-- ── Filters ──────────────────────────────────── -->
-          <div class="settings-panel__section-title">
-            Filtros de recuperación
-            @if (hasActiveFilters()) {
-              <button class="settings-panel__clear-btn" (click)="clearFilters()">Limpiar</button>
+        <!-- ── Filters ──────────────────────────────────── -->
+        <div class="settings-panel__section-title">
+          Filtros de recuperación
+          @if (hasActiveFilters()) {
+            <button class="settings-panel__clear-btn" (click)="clearFilters()">Limpiar</button>
+          }
+        </div>
+
+        <!-- Ring filter -->
+        <div class="settings-panel__row">
+          <label class="settings-panel__label" for="filter-ring">Anillo</label>
+          <select
+            id="filter-ring"
+            class="settings-panel__select"
+            [value]="filterRing()"
+            (change)="filterRing.set($any($event.target).value)"
+          >
+            <option value="">Todos</option>
+            @for (ring of filterOptions.rings; track ring) {
+              <option [value]="ring" [selected]="ring === filterRing()">{{ ring }}</option>
+            }
+          </select>
+        </div>
+
+        <!-- Quadrant filter -->
+        <div class="settings-panel__row">
+          <label class="settings-panel__label" for="filter-quadrant">Cuadrante</label>
+          <select
+            id="filter-quadrant"
+            class="settings-panel__select"
+            [value]="filterQuadrant()"
+            (change)="filterQuadrant.set($any($event.target).value)"
+          >
+            <option value="">Todos</option>
+            @for (q of filterOptions.quadrants; track q) {
+              <option [value]="q" [selected]="q === filterQuadrant()">{{ q }}</option>
+            }
+          </select>
+        </div>
+
+        <!-- Editions filter -->
+        <div class="settings-panel__row settings-panel__row--wrap">
+          <label class="settings-panel__label">Ediciones</label>
+          <div class="settings-panel__chips">
+            @for (ed of filterOptions.editions; track ed) {
+              <button
+                class="chip"
+                [class.chip--active]="isEditionSelected(ed)"
+                (click)="toggleEdition(ed)"
+              >{{ ed }}</button>
             }
           </div>
-
-          <!-- Ring filter -->
-          <div class="settings-panel__row">
-            <label class="settings-panel__label" for="filter-ring">Anillo</label>
-            <select
-              id="filter-ring"
-              class="settings-panel__select"
-              [value]="filterRing()"
-              (change)="filterRing.set($any($event.target).value)"
-            >
-              <option value="">Todos</option>
-              @for (ring of filterOptions.rings; track ring) {
-                <option [value]="ring" [selected]="ring === filterRing()">{{ ring }}</option>
-              }
-            </select>
-          </div>
-
-          <!-- Quadrant filter -->
-          <div class="settings-panel__row">
-            <label class="settings-panel__label" for="filter-quadrant">Cuadrante</label>
-            <select
-              id="filter-quadrant"
-              class="settings-panel__select"
-              [value]="filterQuadrant()"
-              (change)="filterQuadrant.set($any($event.target).value)"
-            >
-              <option value="">Todos</option>
-              @for (q of filterOptions.quadrants; track q) {
-                <option [value]="q" [selected]="q === filterQuadrant()">{{ q }}</option>
-              }
-            </select>
-          </div>
-
-          <!-- Editions filter -->
-          <div class="settings-panel__row settings-panel__row--wrap">
-            <label class="settings-panel__label">Ediciones</label>
-            <div class="settings-panel__chips">
-              @for (ed of filterOptions.editions; track ed) {
-                <button
-                  class="chip"
-                  [class.chip--active]="isEditionSelected(ed)"
-                  (click)="toggleEdition(ed)"
-                >{{ ed }}</button>
-              }
-            </div>
-          </div>
-
         </div>
-      }
-    </div>
+
+        <!-- ── System Prompt ─────────────────────────────── -->
+        <div class="settings-panel__section-title">
+          System Prompt
+        </div>
+
+        <div class="settings-panel__row">
+          <label class="settings-panel__label" for="system-prompt">
+            Prompt del sistema
+          </label>
+          <textarea
+            id="system-prompt"
+            class="settings-panel__textarea"
+            [value]="systemPrompt()"
+            (input)="systemPrompt.set($any($event.target).value)"
+            rows="12"
+            placeholder="Instrucciones del sistema para el modelo…"
+          ></textarea>
+        </div>
+
+      </div>
+    }
   </header>
 
-  <!-- ── Messages / Welcome ─────────────────────────────────── -->
-  <main class="main">
+  <!-- ── Workspace: sidebar + content ──────────────────────── -->
+  <div class="workspace">
 
-    @if (!hasMessages()) {
-      <!-- Welcome screen -->
-      <div class="welcome">
-        <div class="welcome__icon">{{ ui.icon }}</div>
-        <h1 class="welcome__heading">{{ ui.title }}</h1>
-        <p class="welcome__sub">
-          {{ ui.subtitle }}
-        </p>
-        <div class="examples">
-          <p class="examples__label">Prueba con estos ejemplos</p>
-          <div class="examples__grid">
-            @for (ex of examples; track ex) {
-              <button class="example-card" (click)="useExample(ex)">
-                {{ ex }}
-              </button>
-            }
-          </div>
-        </div>
-      </div>
-
-    } @else {
-      <!-- Chat messages -->
-      <div class="messages" #messagesContainer>
-        @for (msg of messages(); track msg.id) {
-
-          <!-- User message -->
-          @if (msg.role === 'user') {
-            <div class="msg msg--user">
-              <div class="msg__bubble msg__bubble--user">{{ msg.content }}</div>
-            </div>
+    <!-- Session sidebar -->
+    @if (sidebarOpen()) {
+      <aside class="sidebar">
+        <div class="sidebar__header">
+          <span class="sidebar__title">Sesión activa</span>
+          @if (sessionId()) {
+            <span class="sidebar__id">{{ shortSessionId() }}</span>
+          } @else {
+            <span class="sidebar__id sidebar__id--empty">sin iniciar</span>
           }
+        </div>
 
-          <!-- Assistant message -->
-          @if (msg.role === 'assistant') {
-            <div class="msg msg--assistant">
-              <div class="msg__avatar" aria-hidden="true">{{ ui.icon }}</div>
-              <div class="msg__body">
+        @if (sessionQuestions().length > 0) {
+          <ol class="sidebar__questions">
+            @for (q of sessionQuestions(); track $index) {
+              <li class="sidebar__question">
+                <span class="sidebar__q-num">{{ $index + 1 }}</span>
+                <span class="sidebar__q-text">{{ q }}</span>
+              </li>
+            }
+          </ol>
+        } @else {
+          <p class="sidebar__empty">No hay preguntas en esta sesión.</p>
+        }
 
-                @if (msg.loading) {
-                  <div class="msg__bubble msg__bubble--assistant msg__bubble--loading">
-                    <span class="loading-label">Generando respuesta</span>
-                    <span class="dots">
-                      <span></span><span></span><span></span>
-                    </span>
-                  </div>
-                } @else {
-                  <div
-                    class="msg__bubble msg__bubble--assistant"
-                    [class.msg__bubble--error]="msg.error"
-                    [innerHTML]="renderContent(msg.content)"
-                  ></div>
+        @if (hasMessages()) {
+          <button class="sidebar__reset" (click)="clearChat()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+            Nueva entrevista
+          </button>
+        }
+      </aside>
+    }
 
-                  <!-- Citations -->
-                  @if (msg.citations && msg.citations.length > 0) {
-                    <div class="citations">
-                      <button
-                        class="citations__toggle"
-                        (click)="toggleCitations(msg.id)"
-                        [attr.aria-expanded]="msg.showCitations"
-                      >
-                        <svg class="citations__icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                          <polyline points="14 2 14 8 20 8"/>
-                          <line x1="16" y1="13" x2="8" y2="13"/>
-                          <line x1="16" y1="17" x2="8" y2="17"/>
-                          <polyline points="10 9 9 9 8 9"/>
-                        </svg>
-                        {{ msg.citations.length }}
-                        {{ msg.citations.length === 1 ? 'referencia' : 'referencias' }}
-                        <svg
-                          class="citations__chevron"
-                          [class.citations__chevron--open]="msg.showCitations"
-                          width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                        >
-                          <polyline points="6 9 12 15 18 9"/>
-                        </svg>
-                      </button>
+    <!-- Main content -->
+    <div class="workspace__main">
 
-                      @if (msg.showCitations) {
-                        <div class="citations__list">
-                          @for (cit of msg.citations; track $index) {
-                            <div class="citation">
-                              <div class="citation__header">
-                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                                  <polyline points="14 2 14 8 20 8"/>
-                                </svg>
-                                <span class="citation__label">{{ getDocumentLabel(cit.source) }}</span>
-                              </div>
-                              @if (cit.text) {
-                                <p class="citation__excerpt">{{ cit.text }}</p>
+      <!-- ── Messages / Welcome ─────────────────────────── -->
+      <main class="main">
+
+        @if (!hasMessages()) {
+          <!-- Welcome screen -->
+          <div class="welcome">
+            <div class="welcome__masthead">
+              <span class="welcome__icon">{{ ui.icon }}</span>
+              <div>
+                <h1 class="welcome__heading">{{ ui.title }}</h1>
+                <p class="welcome__byline">{{ ui.subtitle }}</p>
+              </div>
+            </div>
+            <hr class="welcome__rule" />
+            <div class="examples">
+              <p class="examples__label">Preguntas de ejemplo</p>
+              <div class="examples__grid">
+                @for (ex of examples; track ex) {
+                  <button class="example-card" (click)="useExample(ex)">
+                    {{ ex }}
+                  </button>
+                }
+              </div>
+            </div>
+          </div>
+
+        } @else {
+          <!-- Interview transcript -->
+          <div class="messages" #messagesContainer>
+            @for (msg of messages(); track msg.id) {
+
+              <!-- Question (user) -->
+              @if (msg.role === 'user') {
+                <div class="msg msg--question">
+                  <div class="msg__q-label">P.</div>
+                  <div class="msg__q-text">{{ msg.content }}</div>
+                </div>
+              }
+
+              <!-- Response (assistant) -->
+              @if (msg.role === 'assistant') {
+                <div class="msg msg--response">
+                  <div class="msg__r-label">R.</div>
+                  <div class="msg__body">
+
+                    @if (msg.loading) {
+                      <div class="msg__loading">
+                        <span class="loading-label">Generando respuesta</span>
+                        <span class="dots">
+                          <span></span><span></span><span></span>
+                        </span>
+                      </div>
+                    } @else {
+                      <div
+                        class="msg__prose"
+                        [class.msg__prose--error]="msg.error"
+                        [innerHTML]="renderContent(msg.content)"
+                      ></div>
+
+                      <!-- Citations -->
+                      @if (msg.citations && msg.citations.length > 0) {
+                        <div class="citations">
+                          <button
+                            class="citations__toggle"
+                            (click)="toggleCitations(msg.id)"
+                            [attr.aria-expanded]="msg.showCitations"
+                          >
+                            <svg class="citations__icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                              <polyline points="14 2 14 8 20 8"/>
+                              <line x1="16" y1="13" x2="8" y2="13"/>
+                              <line x1="16" y1="17" x2="8" y2="17"/>
+                              <polyline points="10 9 9 9 8 9"/>
+                            </svg>
+                            {{ msg.citations.length }}
+                            {{ msg.citations.length === 1 ? 'referencia' : 'referencias' }}
+                            <svg
+                              class="citations__chevron"
+                              [class.citations__chevron--open]="msg.showCitations"
+                              width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                            >
+                              <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                          </button>
+
+                          @if (msg.showCitations) {
+                            <div class="citations__list">
+                              @for (cit of msg.citations; track $index) {
+                                <div class="citation">
+                                  <div class="citation__header">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                      <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    <span class="citation__label">{{ getDocumentLabel(cit.source) }}</span>
+                                  </div>
+                                  @if (cit.text) {
+                                    <p class="citation__excerpt">{{ cit.text }}</p>
+                                  }
+                                </div>
                               }
                             </div>
                           }
                         </div>
                       }
-                    </div>
-                  }
-                }
+                    }
 
-              </div>
-            </div>
-          }
+                  </div>
+                </div>
+              }
 
+            }
+          </div>
         }
-      </div>
-    }
 
-  </main>
+      </main>
 
-  <!-- ── Input bar ───────────────────────────────────────────── -->
-  <footer class="footer">
-    <div class="input-wrap">
-      <textarea
-        #inputTextarea
-        class="input-wrap__textarea"
-        [(ngModel)]="inputValue"
-        (keydown)="onKeydown($event)"
-        (input)="autoResize($event)"
-        placeholder="Escribe tu consulta…"
-        rows="1"
-        [disabled]="isLoading()"
-        aria-label="Pregunta"
-      ></textarea>
-      <button
-        class="input-wrap__send"
-        (click)="sendMessage()"
-        [disabled]="!inputValue.trim() || isLoading()"
-        aria-label="Enviar"
-      >
-        @if (isLoading()) {
-          <span class="spinner"></span>
-        } @else {
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-          </svg>
-        }
-      </button>
-    </div>
-    <p class="footer__disclaimer">
-     {{ ui.disclaimer }}
-    </p>
+      <!-- ── Input bar ──────────────────────────────────── -->
+      <footer class="footer">
+        <div class="input-wrap">
+          <textarea
+            #inputTextarea
+            class="input-wrap__textarea"
+            [(ngModel)]="inputValue"
+            (keydown)="onKeydown($event)"
+            (input)="autoResize($event)"
+            placeholder="Escribe tu pregunta…"
+            rows="1"
+            [disabled]="isLoading()"
+            aria-label="Pregunta"
+          ></textarea>
+          <button
+            class="input-wrap__send"
+            (click)="sendMessage()"
+            [disabled]="!inputValue.trim() || isLoading()"
+            aria-label="Enviar"
+          >
+            @if (isLoading()) {
+              <span class="spinner"></span>
+            } @else {
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+              </svg>
+            }
+          </button>
+        </div>
+        <p class="footer__disclaimer">{{ ui.disclaimer }}</p>
+      </footer>
 
-  </footer>
+    </div><!-- /.workspace__main -->
+  </div><!-- /.workspace -->
 
-</div>
+</div><!-- /.layout -->

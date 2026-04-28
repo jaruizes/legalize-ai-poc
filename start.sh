@@ -53,6 +53,34 @@ section "Terraform — init"
 info "Initialising providers and modules..."
 terraform -chdir="$TF_DIR" init -upgrade -input=false
 
+section "Terraform — pre-flight"
+# When a previous destroy fails mid-way, some resources can remain in AWS but
+# be absent from the Terraform state. The S3 frontend bucket is the most common
+# victim: AWS returns 409 BucketAlreadyOwnedByYou instead of the normal conflict
+# error, which trips up Terraform. We detect this case and import the bucket so
+# the subsequent apply can proceed cleanly.
+#
+# The bucket name mirrors the formula in main.tf:
+#   ${var.project}-${var.environment}-frontend-${account_id}-${region_short}
+# We respect TF_VAR_* overrides so custom projects/envs work too.
+_TF_PROJECT="${TF_VAR_project:-radar-ai-poc}"
+_TF_ENV="${TF_VAR_environment:-dev}"
+_REGION=$(aws configure get region 2>/dev/null || echo "eu-west-1")
+_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || true)
+_REGION_SHORT=$(echo "$_REGION" | awk -F'-' '{print substr($1,1,2) substr($2,1,1) $3}')
+_FRONTEND_BUCKET="${_TF_PROJECT}-${_TF_ENV}-frontend-${_ACCOUNT_ID}-${_REGION_SHORT}"
+
+if [ -n "$_ACCOUNT_ID" ] && aws s3api head-bucket --bucket "$_FRONTEND_BUCKET" --region "$_REGION" 2>/dev/null; then
+  if ! terraform -chdir="$TF_DIR" state show 'module.frontend.aws_s3_bucket.frontend' &>/dev/null; then
+    warn "Bucket '$_FRONTEND_BUCKET' exists in AWS but is missing from state (leftover from a failed destroy)."
+    info "Importing bucket into Terraform state..."
+    terraform -chdir="$TF_DIR" import 'module.frontend.aws_s3_bucket.frontend' "$_FRONTEND_BUCKET"
+    success "Bucket imported — apply will proceed without attempting to create it."
+  else
+    success "Bucket '$_FRONTEND_BUCKET' already tracked in state."
+  fi
+fi
+
 section "Terraform — apply"
 warn "This provisions OpenSearch Serverless and Bedrock Knowledge Base."
 warn "First-time deployment typically takes 10–15 minutes."

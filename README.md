@@ -19,7 +19,8 @@ A **production-grade Proof of Concept** for an **Advanced Retrieval-Augmented Ge
    - [Embedding Model: Amazon Titan Embed Text v2](#6-embedding-model-amazon-titan-embed-text-v2)
    - [Generation Token Budget: 2048](#7-generation-token-budget-2048)
    - [Metadata-Aware Retrieval Filters](#8-metadata-aware-retrieval-filters)
-   - [Bedrock Guardrails: Contextual Grounding](#9-bedrock-guardrails-contextual-grounding)
+   - [Hybrid Search: Vector + BM25](#9-hybrid-search-vector--bm25)
+   - [Bedrock Guardrails: Contextual Grounding](#10-bedrock-guardrails-contextual-grounding--built-but-not-applied)
 6. [Infrastructure](#infrastructure)
 7. [Getting Started](#getting-started)
 8. [Configuration Reference](#configuration-reference)
@@ -38,7 +39,8 @@ This project implements an **Advanced RAG** pattern on top of Amazon Bedrock Kno
 - **Citation quality filtering** to suppress structurally-extracted garbage chunks (e.g., PDF index pages with dense number grids) from appearing in responses.
 - **Runtime model switching** supporting both AWS cross-region inference profiles (Amazon Nova family) and Anthropic foundation models (Claude family) without requiring infrastructure changes.
 - **Metadata-aware retrieval filters** that narrow the vector search to a specific ring, quadrant, or set of editions, reducing noise for scoped analytical queries.
-- **Bedrock Guardrails** with contextual grounding checks that block responses not supported by the retrieved documents, preventing hallucinations about technologies absent from the indexed corpus.
+- **Hybrid search (vector + BM25)** using Bedrock's `HYBRID` retrieval mode, which combines dense embedding similarity with BM25 keyword scoring to improve exact-term recall for tool names, acronyms, and version strings.
+- **Bedrock Guardrails** infrastructure provisioned (contextual grounding + relevance checks) but intentionally not applied at runtime — see §10 for why contextual grounding is the wrong control for synthesis RAG.
 
 The reference dataset is the [Thoughtworks Technology Radar](https://github.com/jaruizes/thoughtworks-radar-vols), a bi-annual publication that classifies hundreds of technologies into four rings (Adopt, Trial, Assess, Hold) and four quadrants (Techniques, Platforms, Tools, Languages & Frameworks). Indexing multiple volumes enables queries like:
 
@@ -84,24 +86,25 @@ The reference dataset is the [Thoughtworks Technology Radar](https://github.com/
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  QUERY                                                                      │
 │                                                                             │
-│  Angular UI ──/ask──► API Gateway ──► Ask Lambda                           │
-│   { question, model_id?,              │                                     │
-│     max_tokens?, filters? }    ┌──────▼──────────────────────┐             │
-│                                │ retrieve_and_generate        │             │
-│                                │  Bedrock KB API              │             │
-│                                │  + optional metadata filter  │             │
-│                                │  + Bedrock Guardrail         │             │
-│                                └──────┬───────────────────────┘             │
-│                         ┌────────────┴──────────────┐                      │
-│                         │                           │                       │
-│               ┌─────────▼──────┐         ┌──────────▼────────┐             │
-│               │  Vector Search  │         │  LLM Generation   │             │
-│               │  OpenSearch     │         │  Nova / Claude    │             │
-│               │  (child chunks) │         │  (parent context) │             │
-│               │  + filter by    │         │  + Guardrail      │             │
-│               │  ring/quadrant/ │         │  grounding check  │             │
-│               │  edition        │         └───────────────────┘             │
-│               └────────────────┘                                            │
+│  Angular UI ──/ask──► CloudFront ──► Lambda Function URL ──► Ask Lambda    │
+│   { question, model_id?,                       │                            │
+│     max_tokens?, num_results?,          ┌──────▼──────────────────────┐    │
+│     filters? }                          │ retrieve_and_generate        │    │
+│                                         │  Bedrock KB API              │    │
+│                                         │  + HYBRID search (vec+BM25)  │    │
+│                                         │  + optional metadata filter  │    │
+│                                         └──────┬───────────────────────┘    │
+│                         ┌───────────────────────┴──────────────┐            │
+│                         │                                       │            │
+│               ┌─────────▼──────────┐               ┌───────────▼────────┐  │
+│               │  Hybrid Search      │               │  LLM Generation    │  │
+│               │  OpenSearch         │               │  Nova / Claude     │  │
+│               │  vector + BM25      │               │  (parent context)  │  │
+│               │  (child chunks)     │               └────────────────────┘  │
+│               │  + filter by        │                                        │
+│               │  ring/quadrant/     │                                        │
+│               │  edition            │                                        │
+│               └─────────────────────┘                                       │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -113,12 +116,12 @@ The reference dataset is the [Thoughtworks Technology Radar](https://github.com/
 | Amazon Bedrock Knowledge Bases | Orchestrates ingestion, chunking, embedding, and retrieval |
 | AWS Lambda (Enricher) | Custom POST_CHUNKING transformation: metadata extraction and enrichment |
 | AWS Lambda (Ask) | API handler: receives questions, calls `retrieve_and_generate`, filters citations |
-| Amazon OpenSearch Serverless | Vector store with metadata filtering support |
+| Amazon OpenSearch Serverless | Vector store with hybrid search (vector + BM25) and metadata filtering |
 | Amazon Titan Embed Text v2 | Embedding model (1024 dimensions) |
 | Amazon Nova / Anthropic Claude | Generative models for answer synthesis |
-| Amazon Bedrock Guardrails | Contextual grounding + relevance checks on generated answers |
-| Amazon API Gateway | REST API endpoint |
-| Amazon CloudFront + S3 | Frontend CDN |
+| Amazon Bedrock Guardrails | Contextual grounding + relevance checks (provisioned, not applied — see §10) |
+| AWS Lambda Function URL | HTTP endpoint for the Ask Lambda (replaces API Gateway; no 29s timeout) |
+| Amazon CloudFront + S3 | CDN for frontend; proxies `/ask` to Lambda Function URL |
 | AWS IAM | Least-privilege roles for each component |
 
 ---
@@ -173,35 +176,34 @@ aws bedrock-agent start-ingestion-job \
 1. User question → Angular UI
       │
       ▼
-2. POST /ask → API Gateway → Ask Lambda
-      │  { question, model_id?, max_tokens?, temperature?,
-      │    filters?: { ring?, quadrant?, editions? } }
+2. POST /ask → CloudFront → Lambda Function URL → Ask Lambda
+      │  { question, model_id?, max_tokens?, num_results?,
+      │    temperature?, filters?: { ring?, quadrant?, editions? } }
       ▼
 3. bedrock_agent_runtime.retrieve_and_generate()
       │
-      ├─► Vector search on OpenSearch (child chunks, top-N by cosine similarity)
+      ├─► Hybrid search on OpenSearch (child chunks, top-N)
+      │     · HYBRID mode: dense vector (cosine) + BM25 keyword, fused with RRF
+      │     · Default num_results = 20, user-configurable up to 100 via UI slider
       │     · Optional metadata filter applied when filters.* are present:
       │       e.g. ring=Adopt AND quadrant=Tools AND edition IN [Oct 2024, Apr 2025]
       │
       ├─► Parent chunk retrieval (full 1500-token context for each matched child)
       │
-      ├─► LLM Generation with prompt template:
-      │     SYSTEM_PROMPT + retrieved parent contexts + user question
-      │
-      ├─► Bedrock Guardrail (contextual grounding check)
-      │     · GROUNDING ≥ 0.7: answer must be supported by the retrieved sources
-      │     · RELEVANCE ≥ 0.7: answer must actually address the user's question
-      │     · Responses below threshold → blocked, safe message returned
-      │
-      └─► Response: { answer, citations[] }
+      └─► LLM Generation with prompt template:
+            SYSTEM_PROMPT + retrieved parent contexts + user question
             │
             ▼
-4. Citation filtering (Ask Lambda)
+4. Response: { answer, citations[] }
+      │
+      ▼
+5. Citation filtering (Ask Lambda)
       · Suppress chunks with >40% bare-number tokens (PDF diagram pages)
       · Suppress chunks shorter than 40 characters
-            │
-            ▼
-5. Markdown rendering (Angular UI)
+      │
+      ▼
+6. Typewriter rendering (Angular UI)
+      · Full response received; text revealed word-by-word (typewriter animation)
       · Bedrock citation markers (Passage %[N]%) → superscript refs
       · Raw markdown (**, ##) → HTML
 ```
@@ -433,7 +435,53 @@ Active filters are visually indicated on the settings button and can be cleared 
 
 ---
 
-### 9. Bedrock Guardrails: Contextual Grounding — Built but Not Applied
+### 9. Hybrid Search: Vector + BM25
+
+**Decision**: The retrieval strategy uses `overrideSearchType: "HYBRID"` in `vectorSearchConfiguration`, combining dense vector similarity search with BM25 keyword scoring.
+
+**Why vector-only search is not enough**:
+
+Standard RAG pipelines rely exclusively on **dense vector retrieval**: the query and each document chunk are encoded as high-dimensional embeddings and the closest chunks by cosine similarity are returned. This works well for paraphrased or conceptually similar queries, but has a well-known failure mode: **exact-term recall**.
+
+Embedding models compress meaning into a fixed-size vector. In doing so, specific surface tokens — proper nouns, acronyms, version strings, niche tool names — are merged into a broader semantic neighbourhood. Searching for *"eBPF"* or *"Rust 2024 edition"* may return chunks about systems observability or memory-safe languages in general, rather than the chunk that contains those exact strings.
+
+In a technology radar corpus this matters a lot:
+
+| Query contains | Vector search may miss | BM25 would catch |
+|---|---|---|
+| Exact tool name (`"Temporal"`, `"Buf"`) | Chunks where that name appears once | Chunks with exact token match |
+| Acronyms (`"DORA"`, `"eBPF"`, `"WASM"`) | Semantically distant from description | Exact token match regardless |
+| Version / edition strings (`"Vol. 32"`) | Not meaningful in embedding space | Direct keyword hit |
+| Ring transitions (`"moved to Adopt"`) | Lost in paraphrase compression | Phrase proximity scoring |
+
+**What BM25 adds**:
+
+BM25 (Best Match 25) is a classic probabilistic keyword-ranking function. It scores chunks by the frequency of query tokens relative to the average chunk length (TF-IDF family, with length normalisation). Its strengths are the exact opposite of dense retrieval:
+
+- **Exact-term recall**: if the query token is present in the chunk, BM25 scores it — regardless of how different the surrounding semantics are.
+- **Rare-term boost**: tokens that appear in few chunks (specific tool names) get a high IDF weight, surfacing the most specific passages.
+- **Transparent scoring**: scores are derived directly from token overlap, making the retrieval easier to reason about.
+
+**Hybrid mode in Bedrock Knowledge Base**:
+
+Bedrock's hybrid search mode runs both retrievers in parallel on the same OpenSearch Serverless collection and fuses the result lists using **Reciprocal Rank Fusion (RRF)**: each chunk's combined score is `1/(k + rank_vector) + 1/(k + rank_bm25)` where `k` is a small constant (typically 60). Chunks that rank highly in both lists are boosted strongly; chunks that appear in only one list are still surfaced if their single-list rank is high enough.
+
+This means neither approach dominates — a semantically relevant chunk that doesn't contain the exact query tokens still gets retrieved, and a chunk containing the exact tokens that is semantically distant still gets a chance.
+
+**When hybrid search helps most in this system**:
+
+- Questions about a specific named technology: *"¿Qué dice el radar sobre Temporal?"*
+- Cross-volume evolution queries: the model needs chunks from all three volumes — hybrid search widens the net.
+- Synthesis queries with 20–40 `num_results`: at higher chunk counts the diversity from two retrieval signals prevents the result set from being dominated by a single semantic cluster.
+
+**When it makes little difference**:
+
+- Broad thematic queries without exact-match signals (*"¿Cuáles son las tendencias en plataformas?"*) — both retrievers return conceptually similar chunks.
+- Queries covered by a strong metadata filter — the filter pre-narrows the corpus before ranking.
+
+---
+
+### 10. Bedrock Guardrails: Contextual Grounding — Built but Not Applied
 
 **Decision**: The contextual grounding guardrail infrastructure is provisioned in Terraform but is **intentionally not attached** to the `retrieve_and_generate` call.
 
@@ -482,7 +530,7 @@ infrastructure/terraform/
     ├── bedrock_kb/            # Knowledge Base, Data Source, Enricher Lambda, IAM
     │   ├── main.tf
     │   └── variables.tf
-    ├── api/                   # Ask Lambda, API Gateway, IAM
+    ├── api/                   # Ask Lambda, Lambda Function URL, Guardrail, IAM
     │   ├── main.tf
     │   └── variables.tf
     └── frontend/              # CloudFront distribution + S3 frontend bucket
@@ -519,7 +567,7 @@ chmod +x start.sh
 
 This script:
 1. Verifies prerequisites (terraform, aws, node, npm).
-2. Runs `terraform init` + `terraform apply` (provisions OpenSearch Serverless, Bedrock KB, Lambda, API Gateway, CloudFront). First run takes 10–15 minutes.
+2. Runs `terraform init` + `terraform apply` (provisions OpenSearch Serverless, Bedrock KB, Lambda + Function URL, CloudFront). First run takes 10–15 minutes.
 3. Builds the Angular app and deploys it to S3 + CloudFront.
 4. Removes temporary Lambda ZIP files.
 5. Starts a Bedrock KB ingestion job (clones the radar volumes repo → S3 → chunks → enriches → embeds → indexes).
@@ -577,6 +625,7 @@ All parameters are in `infrastructure/terraform/variables.tf`. The most relevant
 | Variable | Default | Description |
 |---|---|---|
 | `default_max_tokens` | `2048` | Default output token budget. Users can override via UI (up to 4096). |
+| `default_num_results` | `20` | Default number of chunks retrieved per query. Users can override via UI (5–100). |
 | `api_system_prompt` | (see file) | System prompt injected on every `/ask` call. |
 
 ### UI
@@ -593,8 +642,8 @@ All parameters are in `infrastructure/terraform/variables.tf`. The most relevant
 
 | Variable | Default | Description |
 |---|---|---|
-| `guardrail_grounding_threshold` | `0.7` | Minimum grounding score (0–1). Answers with lower score are blocked. |
-| `guardrail_relevance_threshold` | `0.7` | Minimum relevance score (0–1). Answers with lower score are blocked. |
+| `guardrail_grounding_threshold` | `0.4` | Minimum grounding score (0–1). Answers with lower score are blocked. (Guardrail provisioned but not applied — see §10.) |
+| `guardrail_relevance_threshold` | `0.4` | Minimum relevance score (0–1). Answers with lower score are blocked. (Guardrail provisioned but not applied — see §10.) |
 
 ### Data Source
 
@@ -623,7 +672,7 @@ All parameters are in `infrastructure/terraform/variables.tf`. The most relevant
 │           ├── s3_source/          # Source document bucket
 │           ├── opensearch/         # Vector store
 │           ├── bedrock_kb/         # KB + enricher Lambda
-│           └── api/                # Ask Lambda + API Gateway
+│           └── api/                # Ask Lambda + Lambda Function URL + Guardrail
 │
 ├── lambda/
 │   ├── ask/
@@ -683,7 +732,7 @@ Potential next steps to evolve this PoC into a production-grade system:
 
 1. ✅ **Metadata-aware retrieval filters** — `ring`, `quadrant`, and `edition` hard filters applied in the Bedrock vector search configuration via the UI settings panel. See [§8](#8-metadata-aware-retrieval-filters).
 2. **Evaluation framework** — integrate [RAGAS](https://github.com/explodinggradients/ragas) or [DeepEval](https://github.com/confident-ai/deepeval) to measure retrieval precision, answer faithfulness, and context recall across query types.
-3. ~~**Bedrock Guardrails**~~ — the contextual grounding guardrail was built and tested but is **intentionally not applied** to synthesis queries: it evaluates direct textual traceability, which always fails for multi-document inference and analysis. See [§9](#9-bedrock-guardrails-contextual-grounding).
+3. ~~**Bedrock Guardrails**~~ — the contextual grounding guardrail was built and tested but is **intentionally not applied** to synthesis queries: it evaluates direct textual traceability, which always fails for multi-document inference and analysis. See [§10](#10-bedrock-guardrails-contextual-grounding--built-but-not-applied).
 4. **Semantic cache** — cache frequent query embeddings and their responses (Amazon ElastiCache or a Lambda-local LRU) to reduce latency and Bedrock costs for repeated questions.
 5. **Conversation memory** — pass prior turns to `retrieve_and_generate` using Bedrock's session management to enable multi-turn conversations.
 6. **Query decomposition** — for complex analysis questions, decompose them into sub-queries (one per volume), run them in parallel, and synthesise the results. This would significantly improve cross-volume evolution reports.

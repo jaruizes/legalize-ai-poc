@@ -33,6 +33,7 @@ export interface AskRequest {
   top_p?: number;
   num_results?: number;
   filters?: AskFilters;
+  system_prompt?: string;
 }
 
 export interface AskResponse {
