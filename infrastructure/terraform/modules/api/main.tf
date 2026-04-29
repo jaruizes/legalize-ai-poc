@@ -1,3 +1,10 @@
+# ─── Locals ───────────────────────────────────────────────────────────────────
+
+locals {
+  # Derive region prefix (eu / us / ap) for cross-region inference profiles
+  region_prefix = split("-", var.region)[0]
+}
+
 # ─── Bedrock Guardrail ────────────────────────────────────────────────────────
 # Contextual grounding checks that the generated answer is:
 #   · GROUNDING  — supported by the retrieved source chunks (reduces hallucination)
@@ -47,6 +54,46 @@ resource "aws_iam_role" "lambda" {
 resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
   role       = aws_iam_role.lambda.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# ─── DynamoDB — interview sessions ────────────────────────────────────────────
+
+resource "aws_dynamodb_table" "interviews" {
+  name         = "${var.name_prefix}-interviews"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+}
+
+resource "aws_iam_role_policy" "lambda_dynamodb" {
+  name = "${var.name_prefix}-api-lambda-dynamodb"
+  role = aws_iam_role.lambda.name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "DynamoDBInterviews"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:Query",
+        ]
+        Resource = aws_dynamodb_table.interviews.arn
+      }
+    ]
+  })
 }
 
 resource "aws_iam_role_policy" "lambda_bedrock" {
@@ -127,6 +174,8 @@ resource "aws_lambda_function" "ask" {
       GUARDRAIL_ID               = aws_bedrock_guardrail.this.guardrail_id
       GUARDRAIL_VERSION          = aws_bedrock_guardrail_version.this.version
       SYSTEM_PROMPT              = var.system_prompt
+      INTERVIEWS_TABLE           = aws_dynamodb_table.interviews.name
+      SUMMARY_MODEL_ARN          = "arn:aws:bedrock:${var.region}:${var.account_id}:inference-profile/${local.region_prefix}.amazon.nova-micro-v1:0"
       DEFAULT_TEMPERATURE   = tostring(var.default_temperature)
       DEFAULT_MAX_TOKENS    = tostring(var.default_max_tokens)
       DEFAULT_TOP_P         = tostring(var.default_top_p)
@@ -148,7 +197,7 @@ resource "aws_lambda_function_url" "ask" {
   cors {
     allow_credentials = false
     allow_origins     = ["*"]
-    allow_methods     = ["POST"]
+    allow_methods     = ["GET", "POST"]
     allow_headers     = ["content-type"]
     max_age           = 86400
   }

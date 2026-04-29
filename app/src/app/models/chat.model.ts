@@ -27,6 +27,7 @@ export interface AskFilters {
 
 export interface AskRequest {
   question: string;
+  session_id?: string;
   model_id?: string;
   max_tokens?: number;
   temperature?: number;
@@ -39,4 +40,27 @@ export interface AskRequest {
 export interface AskResponse {
   answer: string;
   citations: Citation[];
+  session_id: string;
+}
+
+export interface InterviewTurn {
+  turn_num: number;
+  question: string;
+  answer: string;
+  timestamp: string;
+}
+
+export interface Interview {
+  session_id: string;
+  summary: string;
+  turn_count: number;
+  created_at: string;
+  updated_at: string;
+  turns: InterviewTurn[];
+}
+
+export interface InterviewSummary {
+  session_id: string;
+  executive_summary: string;
+  turn_count: number;
 }

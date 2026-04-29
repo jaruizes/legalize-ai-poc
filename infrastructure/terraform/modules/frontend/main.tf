@@ -114,6 +114,21 @@ resource "aws_cloudfront_distribution" "this" {
     cache_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6"
   }
 
+  # ── /interview/* behavior: proxy GET/POST requests to Lambda Function URL ──
+  ordered_cache_behavior {
+    path_pattern           = "/interview/*"
+    target_origin_id       = "lambda-url"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = false
+
+    # AWS managed: CachingDisabled
+    cache_policy_id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+    # AWS managed: AllViewerExceptHostHeader
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac"
+  }
+
   # ── /ask behavior: proxy POST requests to Lambda Function URL ─────────────
   ordered_cache_behavior {
     path_pattern           = "/ask"

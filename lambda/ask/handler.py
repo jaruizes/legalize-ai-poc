@@ -1,20 +1,28 @@
 import json
 import logging
 import os
+import re
+import uuid
+from datetime import datetime, timezone
 
 import boto3
+from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 bedrock_agent_runtime = boto3.client("bedrock-agent-runtime")
+bedrock_runtime = boto3.client("bedrock-runtime")
+dynamodb = boto3.resource("dynamodb")
 
 KNOWLEDGE_BASE_ID = os.environ["KNOWLEDGE_BASE_ID"]
 INFERENCE_PROFILE_ARN = os.environ["INFERENCE_PROFILE_ARN"]
 INFERENCE_PROFILE_ARN_BASE = os.environ.get("INFERENCE_PROFILE_ARN_BASE", "")
 FOUNDATION_MODEL_ARN_BASE = os.environ.get("FOUNDATION_MODEL_ARN_BASE", "")
 SYSTEM_PROMPT = os.environ["SYSTEM_PROMPT"]
+INTERVIEWS_TABLE = os.environ.get("INTERVIEWS_TABLE", "")
+SUMMARY_MODEL_ARN = os.environ.get("SUMMARY_MODEL_ARN", "amazon.nova-micro-v1:0")
 
 DEFAULT_TEMPERATURE = float(os.environ.get("DEFAULT_TEMPERATURE", "0.5"))
 DEFAULT_MAX_TOKENS = int(os.environ.get("DEFAULT_MAX_TOKENS", "2048"))
@@ -28,9 +36,6 @@ RESPONSE_HEADERS = {
 
 _INFERENCE_PROFILE_PREFIXES = ("eu.", "us.", "ap.", "us-gov.")
 
-# Phrases that indicate the model refused or was blocked by a safety filter.
-# These arrive as normal 200 responses with no exception, so we detect them
-# explicitly in order to log a WARNING with full diagnostic context.
 _REFUSAL_PHRASES = (
     "sorry, i am unable",
     "i cannot assist",
@@ -44,6 +49,8 @@ _REFUSAL_PHRASES = (
     "no puedo ayudarte con",
 )
 
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _is_inference_profile(model_id: str) -> bool:
     return any(model_id.startswith(p) for p in _INFERENCE_PROFILE_PREFIXES)
@@ -67,14 +74,7 @@ def _is_meaningful_chunk(text: str) -> bool:
 
 
 def _build_metadata_filter(filters: dict) -> dict | None:
-    """Convert caller-provided filters into a Bedrock KB metadata filter expression.
-
-    Supported keys:
-      ring      (str)  — exact match: Adopt | Trial | Assess | Hold
-      quadrant  (str)  — exact match: Techniques | Tools | Platforms | Languages and Frameworks
-      editions  (list) — one or more edition strings, OR-combined
-    Returns None when no valid filter is present.
-    """
+    """Convert caller-provided filters into a Bedrock KB metadata filter expression."""
     conditions = []
 
     ring = (filters.get("ring") or "").strip()
@@ -100,6 +100,15 @@ def _build_metadata_filter(filters: dict) -> dict | None:
     return {"andAll": conditions}
 
 
+def _resolve_model_arn(model_id: str) -> str:
+    if model_id:
+        if _is_inference_profile(model_id) and INFERENCE_PROFILE_ARN_BASE:
+            return INFERENCE_PROFILE_ARN_BASE + model_id
+        elif FOUNDATION_MODEL_ARN_BASE:
+            return FOUNDATION_MODEL_ARN_BASE + model_id
+    return INFERENCE_PROFILE_ARN
+
+
 def _error(status_code: int, message: str) -> dict:
     return {
         "statusCode": status_code,
@@ -108,17 +117,103 @@ def _error(status_code: int, message: str) -> dict:
     }
 
 
-def handler(event, context):
-    try:
-        body = json.loads(event.get("body") or "{}")
-    except (json.JSONDecodeError, TypeError):
-        return _error(400, "Invalid JSON body")
+# ─── DynamoDB helpers ─────────────────────────────────────────────────────────
 
+def _table():
+    return dynamodb.Table(INTERVIEWS_TABLE)
+
+
+def _load_session(session_id: str) -> dict | None:
+    if not INTERVIEWS_TABLE:
+        return None
+    try:
+        resp = _table().get_item(Key={"pk": f"SESSION#{session_id}", "sk": "META"})
+        return resp.get("Item")
+    except Exception as exc:
+        logger.warning("DYNAMO_LOAD_ERROR | %s", exc)
+        return None
+
+
+def _load_last_turn(session_id: str, turn_count: int) -> dict | None:
+    if not INTERVIEWS_TABLE or turn_count == 0:
+        return None
+    try:
+        resp = _table().get_item(
+            Key={"pk": f"SESSION#{session_id}", "sk": f"TURN#{turn_count:04d}"}
+        )
+        return resp.get("Item")
+    except Exception as exc:
+        logger.warning("DYNAMO_LOAD_TURN_ERROR | %s", exc)
+        return None
+
+
+def _save_turn(session_id: str, turn_num: int, question: str, answer: str) -> None:
+    if not INTERVIEWS_TABLE:
+        return
+    try:
+        _table().put_item(Item={
+            "pk": f"SESSION#{session_id}",
+            "sk": f"TURN#{turn_num:04d}",
+            "question": question,
+            "answer": answer,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception as exc:
+        logger.warning("DYNAMO_SAVE_TURN_ERROR | %s", exc)
+
+
+def _update_session_meta(
+    session_id: str, turn_count: int, summary: str, created_at: str | None = None
+) -> None:
+    if not INTERVIEWS_TABLE:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        _table().put_item(Item={
+            "pk": f"SESSION#{session_id}",
+            "sk": "META",
+            "summary": summary,
+            "turn_count": turn_count,
+            "created_at": created_at or now,
+            "updated_at": now,
+        })
+    except Exception as exc:
+        logger.warning("DYNAMO_UPDATE_META_ERROR | %s", exc)
+
+
+def _update_rolling_summary(existing_summary: str, question: str, answer: str) -> str:
+    """Call Nova Micro to produce an updated rolling summary of the conversation."""
+    prompt = (
+        "Eres un asistente que mantiene un resumen compacto de una entrevista técnica.\n"
+        "Tu tarea: integrar el nuevo intercambio en el resumen existente y devolver\n"
+        "un resumen actualizado en español de máximo 500 palabras.\n"
+        "Captura: temas técnicos discutidos, opiniones expresadas, tendencias identificadas.\n"
+        "Solo devuelve el resumen, sin introducción ni comentarios adicionales.\n\n"
+        f"RESUMEN EXISTENTE:\n{existing_summary or '(ninguno todavía)'}\n\n"
+        "NUEVO INTERCAMBIO:\n"
+        f"P: {question}\n"
+        f"R: {answer}\n\n"
+        "RESUMEN ACTUALIZADO:"
+    )
+    try:
+        resp = bedrock_runtime.converse(
+            modelId=SUMMARY_MODEL_ARN,
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 700, "temperature": 0.3},
+        )
+        return resp["output"]["message"]["content"][0]["text"].strip()
+    except Exception as exc:
+        logger.warning("SUMMARY_UPDATE_ERROR | %s", exc)
+        return existing_summary  # Fall back to previous summary on error
+
+
+# ─── Route: POST /ask ─────────────────────────────────────────────────────────
+
+def _handle_ask(body: dict) -> dict:
     question = body.get("question", "").strip()
     if not question:
         return _error(400, "'question' field is required")
 
-    # Optional system_prompt override — falls back to the environment variable.
     system_prompt_override = (body.get("system_prompt") or "").strip()
     effective_system_prompt = system_prompt_override if system_prompt_override else SYSTEM_PROMPT
 
@@ -131,10 +226,34 @@ def handler(event, context):
     metadata_filter = _build_metadata_filter(raw_filters) if raw_filters else None
 
     model_id = body.get("model_id", "").strip()
+    model_arn = _resolve_model_arn(model_id)
+
+    # ── Session / conversation context ────────────────────────────────────────
+    session_id = (body.get("session_id") or "").strip()
+    is_new_session = not session_id
+    if is_new_session:
+        session_id = str(uuid.uuid4())
+
+    session_meta = None if is_new_session else _load_session(session_id)
+    turn_count = int((session_meta or {}).get("turn_count", 0))
+    summary = (session_meta or {}).get("summary", "")
+    created_at = (session_meta or {}).get("created_at")
+    last_turn = _load_last_turn(session_id, turn_count)
+
+    # Build context preamble injected before the RAG results
+    context_parts = []
+    if summary:
+        context_parts.append(f"RESUMEN DE LA ENTREVISTA HASTA AHORA:\n{summary}")
+    if last_turn:
+        context_parts.append(
+            f"ÚLTIMO INTERCAMBIO:\nP: {last_turn['question']}\nR: {last_turn['answer']}"
+        )
+    context_preamble = "\n\n".join(context_parts)
 
     logger.info(
         "REQUEST | question_len=%d | model=%s | num_results=%d | "
-        "filters=%s | prompt_src=%s | temperature=%.2f | max_tokens=%d",
+        "filters=%s | prompt_src=%s | temperature=%.2f | max_tokens=%d | "
+        "session=%s | turn=%d | has_context=%s",
         len(question),
         model_id or "(default)",
         num_results,
@@ -142,25 +261,21 @@ def handler(event, context):
         "override" if system_prompt_override else "env",
         temperature,
         max_tokens,
+        session_id[:8],
+        turn_count,
+        bool(context_preamble),
     )
 
-    if model_id:
-        if _is_inference_profile(model_id) and INFERENCE_PROFILE_ARN_BASE:
-            model_arn = INFERENCE_PROFILE_ARN_BASE + model_id
-        elif FOUNDATION_MODEL_ARN_BASE:
-            model_arn = FOUNDATION_MODEL_ARN_BASE + model_id
-        else:
-            model_arn = INFERENCE_PROFILE_ARN
-    else:
-        model_arn = INFERENCE_PROFILE_ARN
+    # Build prompt: system prompt → conversation context → RAG results → question
+    prompt_parts = [effective_system_prompt]
+    if context_preamble:
+        prompt_parts.append(context_preamble)
+    prompt_parts += [
+        "Context from retrieved documents:\n$search_results$",
+        "Question: $query$",
+    ]
+    prompt_template = "\n\n".join(prompt_parts)
 
-    prompt_template = (
-        f"{effective_system_prompt}\n\n"
-        "Context from retrieved documents:\n$search_results$\n\n"
-        "Question: $query$"
-    )
-
-    # Claude models reject requests that specify both temperature and top_p.
     is_anthropic = "anthropic" in model_id or "claude" in model_id
     text_inference_config: dict = {
         "temperature": temperature,
@@ -174,31 +289,12 @@ def handler(event, context):
         "inferenceConfig": {"textInferenceConfig": text_inference_config},
     }
 
-    # HYBRID search combines dense vector similarity (embeddings) with BM25
-    # keyword scoring. This is important for a technology radar corpus where
-    # exact terms — tool names, acronyms, version strings (e.g. "Kafka",
-    # "eBPF", "Rust 2024") — may not survive the semantic compression of
-    # embeddings alone, but are retrieved reliably by BM25's token matching.
     vector_search_config: dict = {
         "numberOfResults": num_results,
         "overrideSearchType": "HYBRID",
     }
     if metadata_filter:
         vector_search_config["filter"] = metadata_filter
-
-    # NOTE: Bedrock sessionId is intentionally NOT used. When a session
-    # accumulates history, Bedrock reformulates the retrieval query using prior
-    # turns, which can produce queries that match nothing in the KB (raw_refs=0)
-    # and cause the model to refuse. Each call retrieves against the literal
-    # question instead, which is more reliable for a document Q&A use case.
-    #
-    # NOTE: Bedrock's contextual grounding guardrail is intentionally NOT applied
-    # here. It evaluates whether the response text can be traced back to retrieved
-    # passages by semantic similarity. For factual Q&A this works; for
-    # multi-document synthesis it always fails: the model draws conclusions and
-    # inferences that are correct but are not literally present in any single
-    # chunk, so the grounding score stays below any useful threshold regardless
-    # of how low it is set.
 
     logger.info(
         "BEDROCK_CALL | model_arn=%s | kb=%s | num_results=%d | search_type=HYBRID | "
@@ -245,13 +341,11 @@ def handler(event, context):
             text = ref.get("content", {}).get("text", "")
             if not _is_meaningful_chunk(text):
                 continue
-            citations.append(
-                {
-                    "source": s3_uri,
-                    "text": text,
-                    "metadata": ref.get("metadata", {}),
-                }
-            )
+            citations.append({
+                "source": s3_uri,
+                "text": text,
+                "metadata": ref.get("metadata", {}),
+            })
 
     logger.info(
         "RESPONSE | answer_len=%d | raw_refs=%d | filtered_refs=%d | answer_preview=%r",
@@ -282,8 +376,162 @@ def handler(event, context):
             question[:300],
         )
 
+    # ── Persist turn + update rolling summary ─────────────────────────────────
+    if INTERVIEWS_TABLE:
+        new_turn_count = turn_count + 1
+        _save_turn(session_id, new_turn_count, question, answer)
+        new_summary = _update_rolling_summary(summary, question, answer)
+        _update_session_meta(session_id, new_turn_count, new_summary, created_at)
+        logger.info("SESSION_SAVED | session=%s | turn=%d", session_id[:8], new_turn_count)
+
     return {
         "statusCode": 200,
         "headers": RESPONSE_HEADERS,
-        "body": json.dumps({"answer": answer, "citations": citations}),
+        "body": json.dumps({
+            "answer": answer,
+            "citations": citations,
+            "session_id": session_id,
+        }),
     }
+
+
+# ─── Route: GET /interview/{id} ───────────────────────────────────────────────
+
+def _handle_get_interview(session_id: str) -> dict:
+    if not INTERVIEWS_TABLE:
+        return _error(503, "Interview history not available")
+
+    try:
+        resp = _table().query(
+            KeyConditionExpression=Key("pk").eq(f"SESSION#{session_id}")
+        )
+        items = resp.get("Items", [])
+    except Exception as exc:
+        logger.error("DYNAMO_QUERY_ERROR | %s", exc)
+        return _error(500, str(exc))
+
+    meta = next((i for i in items if i["sk"] == "META"), None)
+    turns = sorted(
+        [i for i in items if i["sk"].startswith("TURN#")],
+        key=lambda x: x["sk"],
+    )
+
+    return {
+        "statusCode": 200,
+        "headers": RESPONSE_HEADERS,
+        "body": json.dumps({
+            "session_id": session_id,
+            "summary": (meta or {}).get("summary", ""),
+            "turn_count": int((meta or {}).get("turn_count", 0)),
+            "created_at": (meta or {}).get("created_at", ""),
+            "updated_at": (meta or {}).get("updated_at", ""),
+            "turns": [
+                {
+                    "turn_num": int(t["sk"].replace("TURN#", "")),
+                    "question": t.get("question", ""),
+                    "answer": t.get("answer", ""),
+                    "timestamp": t.get("timestamp", ""),
+                }
+                for t in turns
+            ],
+        }),
+    }
+
+
+# ─── Route: POST /interview/{id}/summary ──────────────────────────────────────
+
+def _handle_finalize_interview(session_id: str, body: dict) -> dict:
+    get_resp = _handle_get_interview(session_id)
+    if get_resp["statusCode"] != 200:
+        return get_resp
+
+    interview = json.loads(get_resp["body"])
+    turns = interview.get("turns", [])
+
+    if not turns:
+        return _error(400, "No turns found for this session")
+
+    transcript = "\n\n".join(
+        f"P{i + 1}: {t['question']}\nR{i + 1}: {t['answer']}"
+        for i, t in enumerate(turns)
+    )
+
+    model_id = (body.get("model_id") or "").strip()
+    model_arn = _resolve_model_arn(model_id)
+
+    prompt = (
+        "A continuación tienes la transcripción completa de una entrevista.\n"
+        "Tu única tarea es generar un INFORME EJECUTIVO basado EXCLUSIVAMENTE "
+        "en las preguntas y respuestas de esa transcripción.\n"
+        "No uses conocimiento externo ni información que no aparezca en la entrevista.\n\n"
+        "El informe debe estructurarse en estas secciones:\n"
+        "1. **Resumen ejecutivo**: qué temas se abordaron y cuáles fueron las principales conclusiones (2-3 párrafos)\n"
+        "2. **Temas clave discutidos**: lista de los temas principales que surgieron en la entrevista\n"
+        "3. **Tendencias y patrones identificados**: tendencias o patrones que el entrevistado destacó durante la conversación\n"
+        "4. **Recomendaciones**: consejos o recomendaciones que surgieron en la entrevista\n"
+        "5. **Conclusión**: cierre con los puntos más relevantes de la conversación\n\n"
+        "IMPORTANTE: el informe debe reflejar lo que SE DIJO en la entrevista. "
+        "Cita o parafrasea las respuestas del entrevistado. "
+        "Si alguna sección no tiene contenido relevante en la transcripción, indícalo brevemente.\n\n"
+        f"TRANSCRIPCIÓN:\n{transcript}\n\n"
+        "INFORME EJECUTIVO:"
+    )
+
+    try:
+        resp = bedrock_runtime.converse(
+            modelId=model_arn,
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 2048, "temperature": 0.4},
+        )
+        executive_summary = resp["output"]["message"]["content"][0]["text"].strip()
+    except Exception as exc:
+        logger.error("FINALIZE_ERROR | %s", exc)
+        return _error(500, str(exc))
+
+    logger.info(
+        "FINALIZE | session=%s | turns=%d | summary_len=%d",
+        session_id[:8],
+        len(turns),
+        len(executive_summary),
+    )
+
+    return {
+        "statusCode": 200,
+        "headers": RESPONSE_HEADERS,
+        "body": json.dumps({
+            "session_id": session_id,
+            "executive_summary": executive_summary,
+            "turn_count": interview["turn_count"],
+        }),
+    }
+
+
+# ─── Main handler ─────────────────────────────────────────────────────────────
+
+def handler(event, context):
+    method = (
+        event.get("requestContext", {}).get("http", {}).get("method", "POST").upper()
+    )
+    raw_path = event.get("rawPath", "/ask")
+
+    # GET /interview/{id}
+    m = re.match(r"^/interview/([^/]+)$", raw_path)
+    if m and method == "GET":
+        return _handle_get_interview(m.group(1))
+
+    # POST /interview/{id}/summary
+    m = re.match(r"^/interview/([^/]+)/summary$", raw_path)
+    if m and method == "POST":
+        try:
+            body = json.loads(event.get("body") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            body = {}
+        return _handle_finalize_interview(m.group(1), body)
+
+    # POST /ask (default)
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return _error(400, "Invalid JSON body")
+
+    return _handle_ask(body)
